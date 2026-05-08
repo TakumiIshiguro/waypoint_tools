@@ -1,0 +1,25 @@
+waypoint_tools:
+  ros__parameters:
+    # Waypoint YAML edited by waypoint_editor_node and read by sender node.
+    # waypoint_yaml_path: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma_all.yaml
+    waypoint_yaml_path: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma2-3.yaml
+
+    # Output/edit mode: auto, waypoint_manager2, or waypoint_follower.
+    edit_format: auto
+
+    # Map and RViz files used by the editor launch.
+    map_yaml_path: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/maps/tsudanuma/tsudanuma_keepout.yaml
+    # map_yaml_path: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/maps/tsudanuma/cit_3f_map.yaml
+    rviz_config_path: /home/takumi/ros2_ws/src/waypoint_tools/config/rviz/waypoint_tools.rviz
+
+    # Common ROS settings.
+    frame_id: map
+    use_sim_time: false
+
+    # Edit launch options.
+    start_map: true
+    start_rviz: true
+
+    # Send launch options.
+    action_name: /follow_waypoints
+    send_on_start: true
