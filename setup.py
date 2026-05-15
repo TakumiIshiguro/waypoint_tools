@@ -32,7 +32,7 @@ setup(
     entry_points={
         'console_scripts': [
             'waypoint_editor_node = waypoint_tools.waypoint_editor_node:main',
-            'waypoint_follower_sender_node = waypoint_tools.waypoint_follower_sender_node:main',
+            'waypoint_sender_node = waypoint_tools.waypoint_sender_node:main',
         ],
     },
 )

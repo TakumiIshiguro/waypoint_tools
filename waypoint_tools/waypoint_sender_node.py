@@ -15,9 +15,9 @@ DEFAULT_WAYPOINT_YAML_PATH = (
 )
 
 
-class WaypointFollowerSenderNode(Node):
+class WaypointSenderNode(Node):
     def __init__(self):
-        super().__init__('waypoint_follower_sender_node')
+        super().__init__('waypoint_sender_node')
 
         self.declare_parameter('yaml_path', DEFAULT_WAYPOINT_YAML_PATH)
         self.declare_parameter('frame_id', 'map')
@@ -109,7 +109,7 @@ class WaypointFollowerSenderNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = WaypointFollowerSenderNode()
+    node = WaypointSenderNode()
 
     try:
         rclpy.spin(node)

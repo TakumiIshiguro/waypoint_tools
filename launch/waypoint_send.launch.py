@@ -48,8 +48,8 @@ def launch_setup(context, *args, **kwargs):
     return [
         Node(
             package='waypoint_tools',
-            executable='waypoint_follower_sender_node',
-            name='waypoint_follower_sender_node',
+            executable='waypoint_sender_node',
+            name='waypoint_sender_node',
             output='screen',
             parameters=[{
                 'yaml_path': waypoint_yaml,
