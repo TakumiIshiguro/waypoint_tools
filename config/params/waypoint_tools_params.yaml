@@ -1,8 +1,12 @@
 waypoint_tools:
   ros__parameters:
-    # Waypoint YAML edited by waypoint_editor_node and read by sender node.
-    # waypoint_yaml_path: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma_all.yaml
-    waypoint_yaml_path: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma2-3.yaml
+    # Edit target YAML. Used only by waypoint_edit.launch.py.
+    edit_waypoint_yaml_path: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma2-3.yaml
+
+    # Send target YAMLs. Used only by waypoint_send.launch.py.
+    send_waypoint_yaml_paths:
+      - /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/2-3_1.yaml
+      - /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/2-3_2.yaml
 
     # Output/edit mode: auto, waypoint_manager2, or waypoint_follower.
     edit_format: auto

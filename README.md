@@ -40,6 +40,8 @@ waypoint YAML を読み込み、`nav2_msgs/action/FollowWaypoints` の goal に�
 - デフォルトでは `/follow_waypoints` に全 waypoint を送信
 - `send_on_start` が `true` の場合、起動後に自動送信
 - `~/send_all` service で手動送信
+- 複数の waypoint YAML を順番に送信
+- 1つの YAML が完了した後、`~/next_yaml` service で次の YAML に手動切り替え
 - feedback で現在の waypoint 番号をログ出力
 - action 終了時に missed waypoint をログ出力
 
@@ -130,7 +132,7 @@ ros2 launch waypoint_tools waypoint_edit.launch.py
 
 ```bash
 ros2 launch waypoint_tools waypoint_edit.launch.py \
-  yaml_path:=/path/to/waypoints.yaml
+  edit_waypoint_yaml_path:=/path/to/edit_waypoints.yaml
 ```
 
 読み込む map を指定する場合:
@@ -174,7 +176,7 @@ ros2 launch waypoint_tools waypoint_send.launch.py
 
 ```bash
 ros2 launch waypoint_tools waypoint_send.launch.py \
-  yaml_path:=/path/to/waypoints.yaml
+  send_waypoint_yaml_path:=/path/to/send_waypoints.yaml
 ```
 
 action 名を指定する場合:
@@ -197,16 +199,48 @@ ros2 launch waypoint_tools waypoint_send.launch.py \
 ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger
 ```
 
+## 複数の waypoint YAML を手動で切り替える
+
+`config/params/waypoint_tools_params.yaml` の `send_waypoint_yaml_paths` に、送信したい YAML を順番に並べます。
+
+```yaml
+send_waypoint_yaml_paths:
+  - /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/2-3_1.yaml
+  - /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/2-3_2.yaml
+```
+
+sender を起動します。
+
+```bash
+ros2 launch waypoint_tools waypoint_send.launch.py
+```
+
+`send_on_start: true` の場合、最初の YAML が自動送信されます。最初の YAML の最後の waypoint に到達すると、node は以下のログを出します。
+
+```text
+Last waypoint in current YAML reached. Call /waypoint_sender_node/next_yaml to send the next YAML.
+```
+
+人間が確認してから、次の YAML を送信します。
+
+```bash
+ros2 service call /waypoint_sender_node/next_yaml std_srvs/srv/Trigger
+```
+
+この service は、現在の `FollowWaypoints` goal が実行中の間は失敗します。つまり、同じ YAML の途中で次の YAML に切り替わることはありません。
+
+`send_waypoint_yaml_paths` が空、または未設定の場合は、`send_waypoint_yaml_path` の単一 YAML だけを送信します。
+
 ## パラメータ
 
 共通パラメータ:
 
-- `yaml_path` / `waypoint_yaml_path`: waypoint YAML のパス
 - `frame_id`: 出力する pose の frame。通常は `map`
 - `use_sim_time`: simulation clock を使うかどうか
 
 editor launch 用パラメータ:
 
+- `edit_waypoint_yaml_path`: 編集対象の waypoint YAML
 - `map` / `map_yaml_path`: `nav2_map_server` に読み込ませる map YAML
 - `rviz_config` / `rviz_config_path`: RViz config のパス
 - `edit_format`: `auto`, `waypoint_manager2`, `waypoint_follower`
@@ -215,8 +249,12 @@ editor launch 用パラメータ:
 
 sender launch 用パラメータ:
 
+- `send_waypoint_yaml_path`: 送信用の単一 waypoint YAML
+- `send_waypoint_yaml_paths`: 送信用の複数 waypoint YAML。設定されている場合、sender はこのリストを優先
 - `action_name`: Nav2 `FollowWaypoints` の action 名
 - `send_on_start`: 起動後に waypoint を自動送信するかどうか
+
+互換用に `yaml_path` と `waypoint_yaml_path` も launch 引数として受け付けますが、param ファイルでは用途が明確な `edit_waypoint_yaml_path` / `send_waypoint_yaml_path` / `send_waypoint_yaml_paths` を使ってください。
 
 デフォルト値は以下に定義されています。
 

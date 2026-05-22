@@ -47,7 +47,8 @@ def launch_setup(context, *args, **kwargs):
         return str(params.get(param_name or names[0], default))
 
     waypoint_yaml = value(
-        ['yaml_path', 'waypoint_yaml_path'], 'waypoint_yaml_path',
+        ['edit_waypoint_yaml_path', 'yaml_path', 'waypoint_yaml_path'],
+        'edit_waypoint_yaml_path',
         os.path.join(get_package_share_directory('waypoint_tools'),
                      'config', 'waypoints', 'sample.yaml'))
     map_yaml = value(
@@ -132,6 +133,7 @@ def generate_launch_description():
             description='Waypoint tools parameter file.'),
         DeclareLaunchArgument('yaml_path', default_value=''),
         DeclareLaunchArgument('waypoint_yaml_path', default_value=''),
+        DeclareLaunchArgument('edit_waypoint_yaml_path', default_value=''),
         DeclareLaunchArgument('map', default_value=''),
         DeclareLaunchArgument('map_yaml_path', default_value=''),
         DeclareLaunchArgument('rviz_config', default_value=''),

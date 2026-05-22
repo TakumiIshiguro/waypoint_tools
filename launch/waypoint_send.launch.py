@@ -37,9 +37,15 @@ def launch_setup(context, *args, **kwargs):
         return str(params.get(param_name or names[0], default))
 
     waypoint_yaml = value(
-        ['yaml_path', 'waypoint_yaml_path'], 'waypoint_yaml_path',
+        ['send_waypoint_yaml_path', 'yaml_path', 'waypoint_yaml_path'],
+        'send_waypoint_yaml_path',
         os.path.join(get_package_share_directory('waypoint_tools'),
                      'config', 'waypoints', 'sample.yaml'))
+    waypoint_yamls = params.get(
+        'send_waypoint_yaml_paths',
+        params.get('waypoint_yaml_paths', []))
+    if not isinstance(waypoint_yamls, list):
+        waypoint_yamls = []
     frame_id = value('frame_id', default='map')
     action_name = value('action_name', default='/follow_waypoints')
     use_sim_time = as_bool(value('use_sim_time', default='false'))
@@ -53,6 +59,7 @@ def launch_setup(context, *args, **kwargs):
             output='screen',
             parameters=[{
                 'yaml_path': waypoint_yaml,
+                'yaml_paths': waypoint_yamls,
                 'frame_id': frame_id,
                 'action_name': action_name,
                 'send_on_start': send_on_start,
@@ -74,6 +81,7 @@ def generate_launch_description():
             description='Waypoint tools parameter file.'),
         DeclareLaunchArgument('yaml_path', default_value=''),
         DeclareLaunchArgument('waypoint_yaml_path', default_value=''),
+        DeclareLaunchArgument('send_waypoint_yaml_path', default_value=''),
         DeclareLaunchArgument('frame_id', default_value=''),
         DeclareLaunchArgument('use_sim_time', default_value=''),
         DeclareLaunchArgument('action_name', default_value=''),
