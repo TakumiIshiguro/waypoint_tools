@@ -9,8 +9,8 @@
 
 ## RViz で waypoint を編集する
 
-`launch/waypoint_edit.launch.py` 内で、読み込む map と編集対象の
-waypoint YAML を指定してから起動します。
+`config/params/waypoint_tools_params.yaml` の `map_yaml_path` と
+`edit_waypoint_yaml_path` を指定してから起動します。
 
 ```bash
 ros2 launch waypoint_tools waypoint_edit.launch.py
@@ -22,7 +22,8 @@ waypoint marker を右クリックして `save` を選択します。
 
 ## Nav2 に waypoint を送信する
 
-`launch/waypoint_send.launch.py` 内で送信対象の waypoint YAML を指定します。
+`config/params/waypoint_tools_params.yaml` の `send_waypoint_yaml_paths` に
+送信対象の waypoint YAML を指定します。
 Nav2 を起動した後、sender を起動します。
 
 ```bash
