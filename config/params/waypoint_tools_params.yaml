@@ -3,6 +3,9 @@ waypoint_tools:
     # Edit target YAML. Used only by waypoint_edit.launch.py.
     edit_waypoint_yaml_path: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma_4.yaml
 
+    # Edit target Folder. Used only by waypoint_edit.launch.py.
+    yaml_dir: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints
+
     # Send target YAMLs. Used only by waypoint_send.launch.py.
     send_waypoint_yaml_paths:
       - /home/orne_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma1.yaml

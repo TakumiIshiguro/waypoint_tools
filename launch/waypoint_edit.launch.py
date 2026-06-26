@@ -126,7 +126,7 @@ def launch_setup(context, *args, **kwargs):
 def generate_launch_description():
     package_share = get_package_share_directory('waypoint_tools')
     default_params_file = os.path.join(
-        package_share, 'config', 'params', 'waypoint_tools_params.yaml')
+        package_share, 'config', 'params', 'my_waypoint_tools_params.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument(
