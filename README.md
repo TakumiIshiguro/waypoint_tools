@@ -32,7 +32,7 @@ ros2 launch waypoint_tools waypoint_edit.launch.py
 waypoint marker を右クリックして `save` を選択します。
 編集内容は、現在読み込まれている waypoint YAML に保存されます。
 
-1つのyamlファイルの編集が完了したら、以下で次のyamlファイルに進みます。 
+1つのyamlファイルの編集が完了したら、以下で次のyamlファイル(名前順)に進みます。 
 ```bash
 ros2 service call /waypoint_editor_node/next_file std_srvs/srv/Trigger {}
 ```
