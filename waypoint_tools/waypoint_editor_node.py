@@ -59,6 +59,8 @@ class WaypointEditorNode(Node):
             'route_topic').get_parameter_value().string_value
         edit_format = self.get_parameter(
             'edit_format').get_parameter_value().string_value
+        yaml_dir = self.get_parameter(
+            'yaml_dir').get_parameter_value().string_value
 
         # -------------------------------------------------------
         # フォルダモードの初期化
