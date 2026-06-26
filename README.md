@@ -30,7 +30,7 @@ ros2 launch waypoint_tools waypoint_edit.launch.py
 
 編集した waypoint を保存するには、RViz の `Interact` ツールを選択し、
 waypoint marker を右クリックして `save` を選択します。
-編集内容は、起動時に読み込んだ waypoint YAML に保存されます。
+編集内容は、現在読み込まれている waypoint YAML に保存されます。
 
 1つのyamlファイルの編集が完了したら、以下で次のyamlファイルに進みます。 
 ```bash
