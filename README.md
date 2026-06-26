@@ -8,7 +8,7 @@
 - `waypoint_sender_node`: waypoint YAML を読み込み、Nav2 に送信する node
 
 ## RViz で waypoint を編集する
-* yamlファイル単体を指定する場合：  
+### yamlファイル単体を指定する場合：  
 `config/params/waypoint_tools_params.yaml` の `map_yaml_path` と
 `edit_waypoint_yaml_path` を指定してから起動します。
 
@@ -20,7 +20,7 @@ ros2 launch waypoint_tools waypoint_edit.launch.py
 waypoint marker を右クリックして `save` を選択します。
 編集内容は、起動時に読み込んだ waypoint YAML に保存されます。
 
-* yamlファイルをフォルダごと指定する場合：
+### yamlファイルをフォルダごと指定する場合： 
 `config/params/waypoint_tools_params.yaml` の `map_yaml_path` と
 `yaml_dir` を指定してから起動します。
 
