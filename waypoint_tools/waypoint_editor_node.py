@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 import copy
 
+# 追加
+import glob
+import os
+from rcl_interfaces.msg import SetParametersResult
+
 import rclpy
 from geometry_msgs.msg import Point, Quaternion
 from interactive_markers import InteractiveMarkerServer, MenuHandler
@@ -43,6 +48,8 @@ class WaypointEditorNode(Node):
         self.declare_parameter('frame_id', 'map')
         self.declare_parameter('route_topic', '~/routes')
         self.declare_parameter('edit_format', 'auto')
+        # フォルダ指定パラメータ（空文字 = 単体ファイルモード)
+        self.declare_parameter('yaml_dir', '')
 
         self.yaml_path = self.get_parameter(
             'yaml_path').get_parameter_value().string_value
@@ -52,6 +59,16 @@ class WaypointEditorNode(Node):
             'route_topic').get_parameter_value().string_value
         edit_format = self.get_parameter(
             'edit_format').get_parameter_value().string_value
+
+        # -------------------------------------------------------
+        # フォルダモードの初期化
+        self.yaml_files = []    # フォルダ内 yaml ファイル一覧
+        self.file_index = 0     # 現在のインデックス
+        if yaml_dir:
+            self._scan_yaml_dir(yaml_dir)
+            if self.yaml_files:
+                self.yaml_path = self.yaml_files[0]
+        # -------------------------------------------------------
 
         self.config, self.yaml_format = load_config(self.yaml_path)
         if edit_format != 'auto':
@@ -67,12 +84,106 @@ class WaypointEditorNode(Node):
         self.reload_service = self.create_service(
             Trigger, '~/reload', self.reload_callback)
 
+        # -------------------------------------------------------
+        # next / prev サービス
+        self.next_service = self.create_service(
+            Trigger, '~/next_file', self.next_file_callback)
+        self.prev_service = self.create_service(
+            Trigger, '~/prev_file', self.prev_file_callback)
+        # -------------------------------------------------------
+        # yaml_dir パラメータの動的変更を監視
+        self.add_on_set_parameters_callback(self.on_params_changed)
+        # -----------------------------------------------------
+
         self.init_menu()
         self.rebuild_markers()
         self.timer = self.create_timer(0.5, self.publish_routes)
 
         self.get_logger().info(f'Loaded waypoints: {self.yaml_path}')
         self.get_logger().info(f'Edit format: {self.yaml_format}')
+
+    # -----------------------------------------------------------
+    # フォルダスキャン
+    # -----------------------------------------------------------
+    def _scan_yaml_dir(self, yaml_dir):
+        """yaml_dir 内の .yaml ファイルをソートして self.yaml_files に格納する"""
+        pattern = os.path.join(yaml_dir, '*.yaml')
+        files = sorted(glob.glob(pattern))
+        if not files:
+            self.get_logger().warn(f'No yaml files found in: {yaml_dir}')
+        self.yaml_files = files
+        self.file_index = 0
+        self.get_logger().info(
+            f'Found {len(self.yaml_files)} yaml files in {yaml_dir}')
+
+    # -----------------------------------------------------------
+    # パラメータ動的変更コールバック（yaml_dir の変更に対応）
+    # -----------------------------------------------------------
+    def on_params_changed(self, params):
+        for p in params:
+            if p.name == 'yaml_dir' and p.value:
+                self._scan_yaml_dir(p.value)
+                if self.yaml_files:
+                    self._load_file(self.yaml_files[0])
+        return SetParametersResult(successful=True)
+
+    # -----------------------------------------------------------
+    # ファイル切り替えの共通処理
+    # -----------------------------------------------------------
+    def _load_file(self, path):
+        self.yaml_path = path
+        self.config, self.yaml_format = load_config(self.yaml_path)
+        self.update_format_menu_checks()
+        self.rebuild_markers()
+        self.get_logger().info(
+            f'[{self.file_index + 1}/{len(self.yaml_files)}] '
+            f'Loaded: {os.path.basename(self.yaml_path)}')
+
+    # -----------------------------------------------------------
+    # next / prev サービスコールバック
+    # -----------------------------------------------------------
+    def next_file_callback(self, request, response):
+        if not self.yaml_files:
+            response.success = False
+            response.message = 'yaml_dir is not set or no yaml files found.'
+            return response
+        if self.file_index >= len(self.yaml_files) - 1:
+            response.success = False
+            response.message = (
+                f'Already at the last file '
+                f'({self.file_index + 1}/{len(self.yaml_files)}): '
+                f'{os.path.basename(self.yaml_path)}')
+            return response
+
+        self.file_index += 1
+        self._load_file(self.yaml_files[self.file_index])
+        response.success = True
+        response.message = (
+            f'[{self.file_index + 1}/{len(self.yaml_files)}] '
+            f'{os.path.basename(self.yaml_path)}')
+        return response
+
+    def prev_file_callback(self, request, response):
+        if not self.yaml_files:
+            response.success = False
+            response.message = 'yaml_dir is not set or no yaml files found.'
+            return response
+        if self.file_index <= 0:
+            response.success = False
+            response.message = (
+                f'Already at the first file '
+                f'({self.file_index + 1}/{len(self.yaml_files)}): '
+                f'{os.path.basename(self.yaml_path)}')
+            return response
+
+        self.file_index -= 1
+        self._load_file(self.yaml_files[self.file_index])
+        response.success = True
+        response.message = (
+            f'[{self.file_index + 1}/{len(self.yaml_files)}] '
+            f'{os.path.basename(self.yaml_path)}')
+        return response
+
 
     def init_menu(self):
         self.menu_handler.insert('insert after', callback=self.insert_callback)
