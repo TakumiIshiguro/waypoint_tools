@@ -60,6 +60,7 @@ def launch_setup(context, *args, **kwargs):
                      'config', 'rviz', 'waypoint_tools.rviz'))
     frame_id = value('frame_id', default='map')
     edit_format = value('edit_format', default='auto')
+    yaml_dir = value('yaml_dir', default='')
     use_sim_time = as_bool(value('use_sim_time', default='false'))
     start_map = as_bool(value('start_map', default='true'))
     start_rviz = as_bool(value('start_rviz', default='true'))
@@ -99,6 +100,7 @@ def launch_setup(context, *args, **kwargs):
             output='screen',
             parameters=[{
                 'yaml_path': waypoint_yaml,
+                'yaml_dir': yaml_dir,
                 'frame_id': frame_id,
                 'edit_format': edit_format,
                 'use_sim_time': use_sim_time,
@@ -134,6 +136,7 @@ def generate_launch_description():
         DeclareLaunchArgument('yaml_path', default_value=''),
         DeclareLaunchArgument('waypoint_yaml_path', default_value=''),
         DeclareLaunchArgument('edit_waypoint_yaml_path', default_value=''),
+        DeclareLaunchArgument('yaml_dir', default_value=''),
         DeclareLaunchArgument('map', default_value=''),
         DeclareLaunchArgument('map_yaml_path', default_value=''),
         DeclareLaunchArgument('rviz_config', default_value=''),
