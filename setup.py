@@ -33,6 +33,8 @@ setup(
         'console_scripts': [
             'waypoint_editor_node = waypoint_tools.waypoint_editor_node:main',
             'waypoint_sender_node = waypoint_tools.waypoint_sender_node:main',
+            'waypoint_recorder_node = '
+            'waypoint_tools.waypoint_recorder_node:main',
         ],
     },
 )
