@@ -1,84 +1,63 @@
 #!/usr/bin/env python3
 import copy
-
-# 追加
-import glob
 import os
+
 from rcl_interfaces.msg import SetParametersResult
 
 import rclpy
-from geometry_msgs.msg import Point, Quaternion
+from geometry_msgs.msg import Point
 from interactive_markers import InteractiveMarkerServer, MenuHandler
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 from visualization_msgs.msg import (
-    InteractiveMarker,
-    InteractiveMarkerControl,
     InteractiveMarkerFeedback,
     Marker,
     MarkerArray,
 )
 
-from waypoint_tools.action_sender import (
-    quaternion_to_yaw,
-    yaw_to_quaternion,
-)
+from waypoint_tools.action_sender import quaternion_to_yaw
+from waypoint_tools.interactive_waypoints import build_waypoint_marker
+from waypoint_tools.paths import pkg_path
 from waypoint_tools.waypoint_yaml import (
-    convert_config,
     get_waypoints,
     get_xyz_yaw,
+    list_waypoint_yamls,
     load_config,
-    normalize_format_name,
     save_config,
     set_xyz_yaw,
 )
 
 
-DEFAULT_WAYPOINT_YAML_PATH = (
-    '/home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/'
-    'config/waypoints/tsudanuma2-3.yaml'
-)
+DEFAULT_WAYPOINT_YAML_PATH = pkg_path('config', 'waypoints', 'sample.yaml')
 
 
 class WaypointEditorNode(Node):
     def __init__(self):
         super().__init__('waypoint_editor_node')
 
+        # yaml_path はファイル/フォルダどちらでも可。
+        #   ファイル -> そのファイルを開く
+        #   フォルダ -> 中の *.yaml を数値順に並べ、~/next_file /~/prev_file で送る
         self.declare_parameter('yaml_path', DEFAULT_WAYPOINT_YAML_PATH)
         self.declare_parameter('frame_id', 'map')
-        self.declare_parameter('route_topic', '~/routes')
-        self.declare_parameter('edit_format', 'auto')
-        # フォルダ指定パラメータ（空文字 = 単体ファイルモード)
-        self.declare_parameter('yaml_dir', '')
+        self.declare_parameter('route_topic', '/waypoint_tools/routes')
 
-        self.yaml_path = self.get_parameter(
-            'yaml_path').get_parameter_value().string_value
+        target = os.path.expanduser(self.get_parameter(
+            'yaml_path').get_parameter_value().string_value)
         self.frame_id = self.get_parameter(
             'frame_id').get_parameter_value().string_value
         route_topic = self.get_parameter(
             'route_topic').get_parameter_value().string_value
-        edit_format = self.get_parameter(
-            'edit_format').get_parameter_value().string_value
-        yaml_dir = self.get_parameter(
-            'yaml_dir').get_parameter_value().string_value
 
-        # -------------------------------------------------------
-        # フォルダモードの初期化
-        self.yaml_files = []    # フォルダ内 yaml ファイル一覧
+        self.yaml_files = []    # フォルダモード時の yaml ファイル一覧
         self.file_index = 0     # 現在のインデックス
-        if yaml_dir:
-            self._scan_yaml_dir(yaml_dir)
-            if self.yaml_files:
-                self.yaml_path = self.yaml_files[0]
-        # -------------------------------------------------------
+        self.yaml_path = ''
+        self._set_target(target)
 
-        self.config, self.yaml_format = load_config(self.yaml_path)
-        if edit_format != 'auto':
-            self.set_format(edit_format)
+        self.config = load_config(self.yaml_path)
 
-        self.server = InteractiveMarkerServer(self, 'waypoint_editor')
+        self.server = InteractiveMarkerServer(self, 'waypoint_tools')
         self.menu_handler = MenuHandler()
-        self.format_menu_handles = {}
 
         self.route_pub = self.create_publisher(MarkerArray, route_topic, 10)
         self.save_service = self.create_service(
@@ -93,7 +72,7 @@ class WaypointEditorNode(Node):
         self.prev_service = self.create_service(
             Trigger, '~/prev_file', self.prev_file_callback)
         # -------------------------------------------------------
-        # yaml_dir パラメータの動的変更を監視
+        # yaml_path パラメータの動的変更を監視
         self.add_on_set_parameters_callback(self.on_params_changed)
         # -----------------------------------------------------
 
@@ -102,31 +81,39 @@ class WaypointEditorNode(Node):
         self.timer = self.create_timer(0.5, self.publish_routes)
 
         self.get_logger().info(f'Loaded waypoints: {self.yaml_path}')
-        self.get_logger().info(f'Edit format: {self.yaml_format}')
 
     # -----------------------------------------------------------
-    # フォルダスキャン
+    # 対象（ファイル or フォルダ）の解決
     # -----------------------------------------------------------
-    def _scan_yaml_dir(self, yaml_dir):
-        """yaml_dir 内の .yaml ファイルをソートして self.yaml_files に格納する"""
-        pattern = os.path.join(yaml_dir, '*.yaml')
-        files = sorted(glob.glob(pattern))
-        if not files:
-            self.get_logger().warn(f'No yaml files found in: {yaml_dir}')
-        self.yaml_files = files
-        self.file_index = 0
-        self.get_logger().info(
-            f'Found {len(self.yaml_files)} yaml files in {yaml_dir}')
+    def _set_target(self, path):
+        """path がフォルダならフォルダモード、ファイルならそのファイル."""
+        if os.path.isdir(path):
+            files = list_waypoint_yamls(path)
+            if not files:
+                raise RuntimeError(f'No yaml files in directory: {path}')
+            self.yaml_files = files
+            self.file_index = 0
+            self.yaml_path = self.yaml_files[0]
+            self.get_logger().info(
+                f'Folder mode: {len(files)} yaml files in {path}')
+        else:
+            self.yaml_files = []
+            self.file_index = 0
+            self.yaml_path = path
+            self.get_logger().info(f'File mode: {path}')
 
     # -----------------------------------------------------------
-    # パラメータ動的変更コールバック（yaml_dir の変更に対応）
+    # パラメータ動的変更コールバック（yaml_path の変更に対応）
     # -----------------------------------------------------------
     def on_params_changed(self, params):
         for p in params:
-            if p.name == 'yaml_dir' and p.value:
-                self._scan_yaml_dir(p.value)
-                if self.yaml_files:
-                    self._load_file(self.yaml_files[0])
+            if p.name == 'yaml_path' and p.value:
+                try:
+                    self._set_target(os.path.expanduser(p.value))
+                    self._load_file(self.yaml_path)
+                except Exception as exc:  # noqa: BLE001
+                    return SetParametersResult(
+                        successful=False, reason=str(exc))
         return SetParametersResult(successful=True)
 
     # -----------------------------------------------------------
@@ -134,78 +121,60 @@ class WaypointEditorNode(Node):
     # -----------------------------------------------------------
     def _load_file(self, path):
         self.yaml_path = path
-        self.config, self.yaml_format = load_config(self.yaml_path)
-        self.update_format_menu_checks()
+        self.config = load_config(self.yaml_path)
         self.rebuild_markers()
         self.get_logger().info(
             f'[{self.file_index + 1}/{len(self.yaml_files)}] '
             f'Loaded: {os.path.basename(self.yaml_path)}')
 
     # -----------------------------------------------------------
-    # next / prev サービスコールバック
+    # ファイル送り（サービス / RViz メニュー 共通）
     # -----------------------------------------------------------
-    def next_file_callback(self, request, response):
+    def _step_file(self, delta):
+        """delta だけファイルを進める。戻り値は (成功, メッセージ)."""
         if not self.yaml_files:
-            response.success = False
-            response.message = 'yaml_dir is not set or no yaml files found.'
-            return response
-        if self.file_index >= len(self.yaml_files) - 1:
-            response.success = False
-            response.message = (
-                f'Already at the last file '
-                f'({self.file_index + 1}/{len(self.yaml_files)}): '
-                f'{os.path.basename(self.yaml_path)}')
-            return response
-
-        self.file_index += 1
+            return False, 'Not in folder mode (yaml_path points to a file).'
+        new_index = self.file_index + delta
+        if new_index < 0 or new_index >= len(self.yaml_files):
+            edge = 'first' if new_index < 0 else 'last'
+            return False, (
+                f'Already at the {edge} file '
+                f'({self.file_index + 1}/{len(self.yaml_files)}).')
+        self.file_index = new_index
         self._load_file(self.yaml_files[self.file_index])
-        response.success = True
-        response.message = (
+        return True, (
             f'[{self.file_index + 1}/{len(self.yaml_files)}] '
             f'{os.path.basename(self.yaml_path)}')
+
+    def next_file_callback(self, request, response):
+        response.success, response.message = self._step_file(1)
         return response
 
     def prev_file_callback(self, request, response):
-        if not self.yaml_files:
-            response.success = False
-            response.message = 'yaml_dir is not set or no yaml files found.'
-            return response
-        if self.file_index <= 0:
-            response.success = False
-            response.message = (
-                f'Already at the first file '
-                f'({self.file_index + 1}/{len(self.yaml_files)}): '
-                f'{os.path.basename(self.yaml_path)}')
-            return response
-
-        self.file_index -= 1
-        self._load_file(self.yaml_files[self.file_index])
-        response.success = True
-        response.message = (
-            f'[{self.file_index + 1}/{len(self.yaml_files)}] '
-            f'{os.path.basename(self.yaml_path)}')
+        response.success, response.message = self._step_file(-1)
         return response
 
+    def _menu_step_file(self, delta):
+        ok, message = self._step_file(delta)
+        if ok:
+            self.get_logger().info(message)
+        else:
+            self.get_logger().warn(message)
+
+    def menu_next_file_callback(self, feedback):
+        self._menu_step_file(1)
+
+    def menu_prev_file_callback(self, feedback):
+        self._menu_step_file(-1)
 
     def init_menu(self):
         self.menu_handler.insert('insert after', callback=self.insert_callback)
         self.menu_handler.insert('delete', callback=self.delete_callback)
         self.menu_handler.insert('save', callback=self.menu_save_callback)
-        format_menu = self.menu_handler.insert('format')
-        self.format_menu_handles['waypoint_manager2'] = self.menu_handler.insert(
-            'waypoint_manager2', parent=format_menu,
-            callback=self.format_callback)
-        self.format_menu_handles['waypoint_follower'] = self.menu_handler.insert(
-            'waypoint_follower', parent=format_menu,
-            callback=self.format_callback)
-        self.update_format_menu_checks()
-
-    def update_format_menu_checks(self):
-        for yaml_format, handle in self.format_menu_handles.items():
-            state = MenuHandler.CHECKED
-            if yaml_format != self.yaml_format:
-                state = MenuHandler.UNCHECKED
-            self.menu_handler.setCheckState(handle, state)
+        self.menu_handler.insert(
+            'prev file', callback=self.menu_prev_file_callback)
+        self.menu_handler.insert(
+            'next file', callback=self.menu_next_file_callback)
 
     def rebuild_markers(self):
         self.server.clear()
@@ -216,43 +185,9 @@ class WaypointEditorNode(Node):
         self.publish_routes()
 
     def make_marker(self, index, x, y, z, yaw):
-        marker = InteractiveMarker()
-        marker.header.frame_id = self.frame_id
-        marker.name = str(index)
-        marker.description = f'waypoint {index}'
-        marker.scale = self.get_marker_scale(index)
-        marker.pose.position.x = x
-        marker.pose.position.y = y
-        marker.pose.position.z = 0.0
-        qx, qy, qz, qw = yaw_to_quaternion(yaw)
-        marker.pose.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
-
-        move_control = InteractiveMarkerControl()
-        move_control.orientation.w = 1.0
-        move_control.orientation.x = 0.0
-        move_control.orientation.y = 1.0
-        move_control.orientation.z = 0.0
-        move_control.interaction_mode = InteractiveMarkerControl.MOVE_PLANE
-        move_control.orientation_mode = InteractiveMarkerControl.INHERIT
-        move_control.always_visible = True
-        move_control.markers.append(self.make_disc_marker(marker.scale))
-        marker.controls.append(move_control)
-
-        rotate_control = InteractiveMarkerControl()
-        rotate_control.orientation.w = 1.0
-        rotate_control.orientation.x = 0.0
-        rotate_control.orientation.y = 1.0
-        rotate_control.orientation.z = 0.0
-        rotate_control.interaction_mode = InteractiveMarkerControl.ROTATE_AXIS
-        rotate_control.orientation_mode = InteractiveMarkerControl.INHERIT
-        rotate_control.always_visible = True
-        rotate_control.markers.append(self.make_arrow_marker(marker.scale))
-        marker.controls.append(rotate_control)
-
-        menu_control = InteractiveMarkerControl()
-        menu_control.interaction_mode = InteractiveMarkerControl.BUTTON
-        marker.controls.append(menu_control)
-
+        marker = build_waypoint_marker(
+            str(index), self.frame_id, x, y, yaw,
+            self.get_marker_scale(index), f'waypoint {index}')
         self.server.insert(marker, feedback_callback=self.feedback_callback)
         self.server.setCallback(
             marker.name, self.pose_update_callback,
@@ -264,30 +199,6 @@ class WaypointEditorNode(Node):
         properties = waypoint.get('properties', {})
         radius = float(properties.get('goal_radius', 1.0))
         return max(radius, 0.3)
-
-    def make_disc_marker(self, scale):
-        marker = Marker()
-        marker.type = Marker.CYLINDER
-        marker.scale.x = scale
-        marker.scale.y = scale
-        marker.scale.z = 0.04
-        marker.color.r = 0.1
-        marker.color.g = 0.7
-        marker.color.b = 1.0
-        marker.color.a = 0.45
-        return marker
-
-    def make_arrow_marker(self, scale):
-        marker = Marker()
-        marker.type = Marker.ARROW
-        marker.scale.x = max(scale * 0.6, 0.35)
-        marker.scale.y = 0.08
-        marker.scale.z = 0.08
-        marker.color.r = 1.0
-        marker.color.g = 0.2
-        marker.color.b = 0.1
-        marker.color.a = 1.0
-        return marker
 
     def feedback_callback(self, feedback):
         if feedback.event_type == InteractiveMarkerFeedback.MENU_SELECT:
@@ -314,8 +225,6 @@ class WaypointEditorNode(Node):
         x, y, z, yaw = get_xyz_yaw(waypoints[index])
         new_waypoint = copy.deepcopy(waypoints[index])
         set_xyz_yaw(new_waypoint, x + 0.5, y, z, yaw)
-        if 'id' in new_waypoint:
-            new_waypoint['id'] = index + 1
         waypoints.insert(index + 1, new_waypoint)
         self.rebuild_markers()
 
@@ -330,15 +239,6 @@ class WaypointEditorNode(Node):
     def menu_save_callback(self, feedback):
         self.save_waypoints()
 
-    def format_callback(self, feedback):
-        for yaml_format, handle in self.format_menu_handles.items():
-            if feedback.menu_entry_id == handle:
-                self.set_format(yaml_format)
-                break
-        self.update_format_menu_checks()
-        self.menu_handler.reApply(self.server)
-        self.rebuild_markers()
-
     def save_callback(self, request, response):
         try:
             self.save_waypoints()
@@ -352,8 +252,7 @@ class WaypointEditorNode(Node):
 
     def reload_callback(self, request, response):
         try:
-            self.config, self.yaml_format = load_config(self.yaml_path)
-            self.update_format_menu_checks()
+            self.config = load_config(self.yaml_path)
             self.rebuild_markers()
         except Exception as exc:
             response.success = False
@@ -365,13 +264,7 @@ class WaypointEditorNode(Node):
 
     def save_waypoints(self):
         save_config(self.yaml_path, self.config)
-        self.get_logger().info(
-            f'Saved waypoints as {self.yaml_format}: {self.yaml_path}')
-
-    def set_format(self, yaml_format):
-        yaml_format = normalize_format_name(yaml_format)
-        self.config = convert_config(self.config, yaml_format)
-        self.yaml_format = yaml_format
+        self.get_logger().info(f'Saved waypoints: {self.yaml_path}')
 
     def publish_routes(self):
         marker_array = MarkerArray()

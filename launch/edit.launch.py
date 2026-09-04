@@ -7,15 +7,11 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+from waypoint_tools.paths import resolve_path
 
-def get_default_orne_path(*paths):
-    try:
-        orne_share = get_package_share_directory('orne_box_navigation_executor')
-        return os.path.join(orne_share, *paths)
-    except Exception:
-        return os.path.join(
-            '/home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor',
-            *paths)
+DEFAULT_MAP = (
+    'pkg://orne_box_navigation_executor/config/maps/'
+    'tsudanuma/tsudanuma_keepout.yaml')
 
 
 def load_params(params_file):
@@ -46,24 +42,21 @@ def launch_setup(context, *args, **kwargs):
                 return override
         return str(params.get(param_name or names[0], default))
 
-    waypoint_yaml = value(
-        ['edit_waypoint_yaml_path', 'yaml_path', 'waypoint_yaml_path'],
-        'edit_waypoint_yaml_path',
-        os.path.join(get_package_share_directory('waypoint_tools'),
-                     'config', 'waypoints', 'sample.yaml'))
-    map_yaml = value(
-        ['map', 'map_yaml_path'], 'map_yaml_path',
-        get_default_orne_path('config', 'maps', 'tsudanuma.yaml'))
-    rviz_config = value(
+    # ファイル or フォルダを 1 つ指定する（フォルダならファイル送りモード）。
+    edit_target = resolve_path(value(
+        ['edit_waypoint_path', 'yaml_path', 'waypoint_yaml_path'],
+        'edit_waypoint_path', 'config/waypoints/sample.yaml'))
+    map_yaml = resolve_path(value(
+        ['map', 'map_yaml_path'], 'map_yaml_path', DEFAULT_MAP))
+    rviz_config = resolve_path(value(
         ['rviz_config', 'rviz_config_path'], 'rviz_config_path',
-        os.path.join(get_package_share_directory('waypoint_tools'),
-                     'config', 'rviz', 'waypoint_tools.rviz'))
+        'config/rviz/waypoint_tools.rviz'))
     frame_id = value('frame_id', default='map')
-    edit_format = value('edit_format', default='auto')
-    yaml_dir = value('yaml_dir', default='')
     use_sim_time = as_bool(value('use_sim_time', default='false'))
-    start_map = as_bool(value('start_map', default='true'))
-    start_rviz = as_bool(value('start_rviz', default='true'))
+    # 既定 ON: 編集時は既存マップの上で waypoint を並べる。params では制御しない。
+    # マップ不要なら start_map:=false。
+    start_map_arg = LaunchConfiguration('start_map').perform(context)
+    start_map = as_bool(start_map_arg) if start_map_arg else True
 
     nodes = []
 
@@ -99,26 +92,23 @@ def launch_setup(context, *args, **kwargs):
             name='waypoint_editor_node',
             output='screen',
             parameters=[{
-                'yaml_path': waypoint_yaml,
-                'yaml_dir': yaml_dir,
+                'yaml_path': edit_target,
                 'frame_id': frame_id,
-                'edit_format': edit_format,
                 'use_sim_time': use_sim_time,
             }],
         )
     )
 
-    if start_rviz:
-        nodes.append(
-            Node(
-                package='rviz2',
-                executable='rviz2',
-                name='rviz2_waypoint_tools',
-                arguments=['-d', rviz_config],
-                parameters=[{'use_sim_time': use_sim_time}],
-                output='screen',
-            )
+    nodes.append(
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2_waypoint_tools',
+            arguments=['-d', rviz_config],
+            parameters=[{'use_sim_time': use_sim_time}],
+            output='screen',
         )
+    )
 
     return nodes
 
@@ -133,18 +123,15 @@ def generate_launch_description():
             'params_file',
             default_value=default_params_file,
             description='Waypoint tools parameter file.'),
+        DeclareLaunchArgument('edit_waypoint_path', default_value=''),
         DeclareLaunchArgument('yaml_path', default_value=''),
         DeclareLaunchArgument('waypoint_yaml_path', default_value=''),
-        DeclareLaunchArgument('edit_waypoint_yaml_path', default_value=''),
-        DeclareLaunchArgument('yaml_dir', default_value=''),
         DeclareLaunchArgument('map', default_value=''),
         DeclareLaunchArgument('map_yaml_path', default_value=''),
         DeclareLaunchArgument('rviz_config', default_value=''),
         DeclareLaunchArgument('rviz_config_path', default_value=''),
         DeclareLaunchArgument('frame_id', default_value=''),
         DeclareLaunchArgument('use_sim_time', default_value=''),
-        DeclareLaunchArgument('edit_format', default_value=''),
         DeclareLaunchArgument('start_map', default_value=''),
-        DeclareLaunchArgument('start_rviz', default_value=''),
         OpaqueFunction(function=launch_setup),
     ])

@@ -66,16 +66,25 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /waypoint_editor_node/routes
+        Value: /waypoint_tools/routes
       Value: true
     - Class: rviz_default_plugins/InteractiveMarkers
       Enable Transparency: true
       Enabled: true
-      Interactive Markers Namespace: /waypoint_editor
+      Interactive Markers Namespace: /waypoint_tools
       Name: InteractiveMarkers
       Show Axes: false
       Show Descriptions: true
       Show Visual Aids: false
+      Value: true
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Frame Timeout: 15
+      Marker Scale: 1
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
       Value: true
   Enabled: true
   Global Options:

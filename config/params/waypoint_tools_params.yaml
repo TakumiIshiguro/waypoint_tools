@@ -1,34 +1,47 @@
 waypoint_tools:
   ros__parameters:
-    # Edit target YAML. Used only by waypoint_edit.launch.py.
-    edit_waypoint_yaml_path: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma_4.yaml
+    # パスは以下の書き方が使えます（フルパス不要）:
+    #   pkg://<package>/<rel>  … その package の share ディレクトリ基準
+    #   config/...             … waypoint_tools の share ディレクトリ基準
+    #   ~/...                  … ホーム展開
+    #   /abs/path              … 絶対パスもそのまま可
 
-    # Edit target Folder. Used only by waypoint_edit.launch.py.
-    yaml_dir: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/waypoints
+    # Edit target. Used only by edit.launch.py.
+    #   YAML ファイル -> そのファイルを開く
+    #   フォルダ       -> 中の *.yaml を数値順に並べ、
+    #                     /waypoint_editor_node/next_file /prev_file で送る
+    edit_waypoint_path: pkg://orne_box_navigation_executor/config/waypoints/tsudanuma
 
-    # Send target YAMLs. Used only by waypoint_send.launch.py.
-    send_waypoint_yaml_paths:
-      - /home/orne_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma1.yaml
-      - /home/orne_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma2.yaml
-      - /home/orne_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma3.yaml
-      - /home/orne_ws/src/orne-box/orne_box_navigation_executor/config/waypoints/tsudanuma4.yaml
-
-    # Output/edit mode: auto, waypoint_manager2, or waypoint_follower.
-    edit_format: auto
+    # Send target. Used only by send.launch.py.
+    #   YAML ファイル -> その 1 ファイルを送る
+    #   フォルダ       -> 中の *.yaml を数値順に並べ、
+    #                     /waypoint_sender_node/next_file /prev_file で送る
+    send_waypoint_path: pkg://orne_box_navigation_executor/config/waypoints/tsudanuma
 
     # Map and RViz files used by the editor launch.
-    map_yaml_path: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/maps/tsudanuma/tsudanuma_keepout.yaml
-    # map_yaml_path: /home/takumi/ros2_ws/src/orne-box/orne_box_navigation_executor/config/maps/tsudanuma/cit_3f_map.yaml
-    rviz_config_path: /home/takumi/ros2_ws/src/waypoint_tools/config/rviz/waypoint_tools.rviz
+    map_yaml_path: pkg://orne_box_navigation_executor/config/maps/tsudanuma/tsudanuma_keepout.yaml
+    rviz_config_path: config/rviz/waypoint_tools.rviz
 
     # Common ROS settings.
     frame_id: map
     use_sim_time: false
 
-    # Edit launch options.
-    start_map: true
-    start_rviz: true
-
     # Send launch options.
     action_name: /follow_waypoints
     send_on_start: true
+
+    # ---- Auto waypoint recorder. Used only by record.launch.py. ----
+    # Numbered output files are written here as {index}.yaml (0.yaml, 1.yaml,...).
+    # Call /waypoint_recorder_node/next_file to save the current file and move on.
+    record_waypoint_dir: pkg://orne_box_navigation_executor/config/waypoints/tsudanuma
+    record_file_format: '{index}.yaml'
+    record_start_index: 0
+
+    # TF frames polled while driving.
+    map_frame: map
+    robot_frame: base_link
+
+    # Drop a new waypoint after moving this far [m] ...
+    distance_interval: 5.0
+    # ... or after the heading changes this much [deg].
+    yaw_interval_deg: 45.0
