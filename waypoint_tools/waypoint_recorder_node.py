@@ -100,6 +100,9 @@ class WaypointRecorderNode(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.route_pub = self.create_publisher(MarkerArray, route_topic, 10)
+        # 直近で publish した route セグメント数。next_file / clear などで
+        # waypoint が減ったとき、余った古い marker を DELETE するのに使う。
+        self._published_route_count = 0
 
         self.server = InteractiveMarkerServer(self, 'waypoint_tools')
         self.menu_handler = MenuHandler()
@@ -476,6 +479,17 @@ class WaypointRecorderNode(Node):
             route.points.append(Point(x=x1, y=y1, z=0.0))
             route.points.append(Point(x=x2, y=y2, z=0.0))
             marker_array.markers.append(route)
+
+        segment_count = max(len(waypoints) - 1, 0)
+        for index in range(segment_count, self._published_route_count):
+            stale = Marker()
+            stale.header.frame_id = self.map_frame
+            stale.header.stamp = stamp
+            stale.ns = 'waypoint_routes'
+            stale.id = index
+            stale.action = Marker.DELETE
+            marker_array.markers.append(stale)
+        self._published_route_count = segment_count
 
         self.route_pub.publish(marker_array)
 

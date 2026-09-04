@@ -60,6 +60,9 @@ class WaypointEditorNode(Node):
         self.menu_handler = MenuHandler()
 
         self.route_pub = self.create_publisher(MarkerArray, route_topic, 10)
+        # 直近で publish した route セグメント数。ファイル切り替えで
+        # waypoint が減ったとき、余った古い marker を DELETE するのに使う。
+        self._published_route_count = 0
         self.save_service = self.create_service(
             Trigger, '~/save', self.save_callback)
         self.reload_service = self.create_service(
@@ -288,6 +291,16 @@ class WaypointEditorNode(Node):
             route.points.append(Point(x=x1, y=y1, z=0.0))
             route.points.append(Point(x=x2, y=y2, z=0.0))
             marker_array.markers.append(route)
+
+        segment_count = max(len(waypoints) - 1, 0)
+        for index in range(segment_count, self._published_route_count):
+            stale = Marker()
+            stale.header.frame_id = self.frame_id
+            stale.ns = 'waypoint_routes'
+            stale.id = index
+            stale.action = Marker.DELETE
+            marker_array.markers.append(stale)
+        self._published_route_count = segment_count
 
         self.route_pub.publish(marker_array)
 
