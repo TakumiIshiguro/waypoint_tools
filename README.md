@@ -16,9 +16,17 @@
 | 書式 | 解決先 |
 |---|---|
 | `pkg://<package>/<rel>` | その package の share ディレクトリ基準 |
-| `config/...` | `waypoint_tools` の share ディレクトリ基準 |
+| `config/...` | `src/waypoint_tools` 基準 |
 | `~/...` | ホーム展開 |
 | `/abs/path` | 絶対パスもそのまま可 |
+
+デフォルトの設定ファイルは `src/waypoint_tools/config/params/waypoint_tools_params.yaml` です。
+記録・編集・送信は src 側の waypoint を共通で参照し、既定の記録先は
+`src/waypoint_tools/config/waypoints/tsudanuma/` です。
+ornebox のパスは設定ファイル内にコメントで残しています。
+地図を表示する場合は `config/maps/tsudanuma/tsudanuma_keepout.yaml` と対応する
+画像を配置するか、`map_yaml_path` を指定してください。
+編集・送信用の `config/waypoints/tsudanuma/` は、記録して作成するか既存の YAML を配置してください。
 
 ## RViz で waypoint を編集する
 

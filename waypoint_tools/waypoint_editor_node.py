@@ -17,7 +17,7 @@ from visualization_msgs.msg import (
 
 from waypoint_tools.action_sender import quaternion_to_yaw
 from waypoint_tools.interactive_waypoints import build_waypoint_marker
-from waypoint_tools.paths import pkg_path
+from waypoint_tools.paths import source_path
 from waypoint_tools.waypoint_yaml import (
     get_waypoints,
     get_xyz_yaw,
@@ -28,7 +28,7 @@ from waypoint_tools.waypoint_yaml import (
 )
 
 
-DEFAULT_WAYPOINT_YAML_PATH = pkg_path('config', 'waypoints', 'sample.yaml')
+DEFAULT_WAYPOINT_YAML_PATH = source_path('config', 'waypoints', 'sample.yaml')
 
 
 class WaypointEditorNode(Node):

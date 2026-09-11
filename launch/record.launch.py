@@ -1,17 +1,15 @@
-import os
-
 import yaml
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-from waypoint_tools.paths import resolve_path
+from waypoint_tools.paths import resolve_path, source_path
 
-DEFAULT_MAP = (
-    'pkg://orne_box_navigation_executor/config/maps/'
-    'tsudanuma/tsudanuma_keepout.yaml')
+# DEFAULT_MAP = (
+#     'pkg://orne_box_navigation_executor/config/maps/'
+#     'tsudanuma/tsudanuma_keepout.yaml')
+DEFAULT_MAP = 'config/maps/tsudanuma/tsudanuma_keepout.yaml'
 
 
 def load_params(params_file):
@@ -136,9 +134,8 @@ def launch_setup(context, *args, **kwargs):
 
 
 def generate_launch_description():
-    package_share = get_package_share_directory('waypoint_tools')
-    default_params_file = os.path.join(
-        package_share, 'config', 'params', 'waypoint_tools_params.yaml')
+    default_params_file = source_path(
+        'config', 'params', 'waypoint_tools_params.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument(

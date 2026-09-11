@@ -2,7 +2,7 @@ waypoint_tools:
   ros__parameters:
     # パスは以下の書き方が使えます（フルパス不要）:
     #   pkg://<package>/<rel>  … その package の share ディレクトリ基準
-    #   config/...             … waypoint_tools の share ディレクトリ基準
+    #   config/...             … src/waypoint_tools 基準（保存先も src）
     #   ~/...                  … ホーム展開
     #   /abs/path              … 絶対パスもそのまま可
 
@@ -10,16 +10,19 @@ waypoint_tools:
     #   YAML ファイル -> そのファイルを開く
     #   フォルダ       -> 中の *.yaml を数値順に並べ、
     #                     /waypoint_editor_node/next_file /prev_file で送る
-    edit_waypoint_path: pkg://orne_box_navigation_executor/config/waypoints/tsudanuma
+    edit_waypoint_path: config/waypoints/tsudanuma
+    # edit_waypoint_path: pkg://orne_box_navigation_executor/config/waypoints/tsudanuma
 
     # Send target. Used only by send.launch.py.
     #   YAML ファイル -> その 1 ファイルを送る
     #   フォルダ       -> 中の *.yaml を数値順に並べ、
     #                     /waypoint_sender_node/next_file /prev_file で送る
-    send_waypoint_path: pkg://orne_box_navigation_executor/config/waypoints/tsudanuma
+    send_waypoint_path: config/waypoints/tsudanuma
+    # send_waypoint_path: pkg://orne_box_navigation_executor/config/waypoints/tsudanuma
 
     # Map and RViz files used by the editor launch.
-    map_yaml_path: pkg://orne_box_navigation_executor/config/maps/tsudanuma/tsudanuma_keepout.yaml
+    map_yaml_path: config/maps/tsudanuma/tsudanuma_keepout.yaml
+    # map_yaml_path: pkg://orne_box_navigation_executor/config/maps/tsudanuma/tsudanuma_keepout.yaml
     rviz_config_path: config/rviz/waypoint_tools.rviz
 
     # Common ROS settings.
@@ -33,7 +36,8 @@ waypoint_tools:
     # ---- Auto waypoint recorder. Used only by record.launch.py. ----
     # Numbered output files are written here as {index}.yaml (0.yaml, 1.yaml,...).
     # Call /waypoint_recorder_node/next_file to save the current file and move on.
-    record_waypoint_dir: pkg://orne_box_navigation_executor/config/waypoints/tsudanuma
+    # record_waypoint_dir: pkg://orne_box_navigation_executor/config/waypoints/tsudanuma
+    record_waypoint_dir: config/waypoints/tsudanuma
     record_file_format: '{index}.yaml'
     record_start_index: 0
 

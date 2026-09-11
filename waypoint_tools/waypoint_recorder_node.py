@@ -30,7 +30,7 @@ from visualization_msgs.msg import (
 
 from waypoint_tools.action_sender import quaternion_to_yaw
 from waypoint_tools.interactive_waypoints import build_waypoint_marker
-from waypoint_tools.paths import pkg_path
+from waypoint_tools.paths import source_path
 from waypoint_tools.waypoint_yaml import (
     empty_config,
     get_xyz_yaw,
@@ -40,7 +40,7 @@ from waypoint_tools.waypoint_yaml import (
 )
 
 
-DEFAULT_OUTPUT_DIR = pkg_path('config', 'waypoints', 'recorded')
+DEFAULT_OUTPUT_DIR = source_path('config', 'waypoints', 'recorded')
 
 
 def normalize_angle(angle):

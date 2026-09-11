@@ -8,11 +8,11 @@ from rclpy.node import Node
 from std_srvs.srv import Trigger
 
 from waypoint_tools.action_sender import make_follow_waypoints_goal
-from waypoint_tools.paths import pkg_path
+from waypoint_tools.paths import source_path
 from waypoint_tools.waypoint_yaml import list_waypoint_yamls, load_config
 
 
-DEFAULT_WAYPOINT_YAML_PATH = pkg_path('config', 'waypoints', 'sample.yaml')
+DEFAULT_WAYPOINT_YAML_PATH = source_path('config', 'waypoints', 'sample.yaml')
 
 
 class WaypointSenderNode(Node):
