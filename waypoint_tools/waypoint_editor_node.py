@@ -16,8 +16,9 @@ from visualization_msgs.msg import (
 )
 
 from waypoint_tools.action_sender import quaternion_to_yaw
-from waypoint_tools.interactive_waypoints import build_waypoint_marker
-from waypoint_tools.paths import source_path
+from waypoint_tools.interactive_waypoints import (
+    ROUTE_TOPIC, build_waypoint_marker)
+from waypoint_tools.node_params import STRING, require_parameters
 from waypoint_tools.waypoint_yaml import (
     get_waypoints,
     get_xyz_yaw,
@@ -28,9 +29,6 @@ from waypoint_tools.waypoint_yaml import (
 )
 
 
-DEFAULT_WAYPOINT_YAML_PATH = source_path('config', 'waypoints', 'sample.yaml')
-
-
 class WaypointEditorNode(Node):
     def __init__(self):
         super().__init__('waypoint_editor_node')
@@ -38,16 +36,13 @@ class WaypointEditorNode(Node):
         # yaml_path はファイル/フォルダどちらでも可。
         #   ファイル -> そのファイルを開く
         #   フォルダ -> 中の *.yaml を数値順に並べ、~/next_file /~/prev_file で送る
-        self.declare_parameter('yaml_path', DEFAULT_WAYPOINT_YAML_PATH)
-        self.declare_parameter('frame_id', 'map')
-        self.declare_parameter('route_topic', '/waypoint_tools/routes')
+        params = require_parameters(self, {
+            'yaml_path': STRING,
+            'frame_id': STRING,
+        })
 
-        target = os.path.expanduser(self.get_parameter(
-            'yaml_path').get_parameter_value().string_value)
-        self.frame_id = self.get_parameter(
-            'frame_id').get_parameter_value().string_value
-        route_topic = self.get_parameter(
-            'route_topic').get_parameter_value().string_value
+        target = os.path.expanduser(params['yaml_path'])
+        self.frame_id = params['frame_id']
 
         self.yaml_files = []    # フォルダモード時の yaml ファイル一覧
         self.file_index = 0     # 現在のインデックス
@@ -59,7 +54,7 @@ class WaypointEditorNode(Node):
         self.server = InteractiveMarkerServer(self, 'waypoint_tools')
         self.menu_handler = MenuHandler()
 
-        self.route_pub = self.create_publisher(MarkerArray, route_topic, 10)
+        self.route_pub = self.create_publisher(MarkerArray, ROUTE_TOPIC, 10)
         # 直近で publish した route セグメント数。ファイル切り替えで
         # waypoint が減ったとき、余った古い marker を DELETE するのに使う。
         self._published_route_count = 0

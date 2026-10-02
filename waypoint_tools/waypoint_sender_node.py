@@ -8,11 +8,12 @@ from rclpy.node import Node
 from std_srvs.srv import Trigger
 
 from waypoint_tools.action_sender import make_follow_waypoints_goal
-from waypoint_tools.paths import source_path
+from waypoint_tools.node_params import BOOL, STRING, require_parameters
 from waypoint_tools.waypoint_yaml import list_waypoint_yamls, load_config
 
 
-DEFAULT_WAYPOINT_YAML_PATH = source_path('config', 'waypoints', 'sample.yaml')
+# Nav2 の FollowWaypoints action。
+ACTION_NAME = '/follow_waypoints'
 
 
 class WaypointSenderNode(Node):
@@ -22,23 +23,20 @@ class WaypointSenderNode(Node):
         # yaml_path はファイル/フォルダどちらでも可（editor と同じ）。
         #   ファイル -> その 1 ファイルを送る
         #   フォルダ -> 中の *.yaml を数値順に並べ、~/next_file /~/prev_file で送る
-        self.declare_parameter('yaml_path', DEFAULT_WAYPOINT_YAML_PATH)
-        self.declare_parameter('frame_id', 'map')
-        self.declare_parameter('action_name', '/follow_waypoints')
-        self.declare_parameter('send_on_start', True)
+        params = require_parameters(self, {
+            'yaml_path': STRING,
+            'frame_id': STRING,
+            'send_on_start': BOOL,
+        })
 
-        target = os.path.expanduser(self.get_parameter(
-            'yaml_path').get_parameter_value().string_value)
+        target = os.path.expanduser(params['yaml_path'])
 
         self.yaml_files = self._resolve_targets(target)
         self.file_index = 0
 
-        self.frame_id = self.get_parameter(
-            'frame_id').get_parameter_value().string_value
-        self.action_name = self.get_parameter(
-            'action_name').get_parameter_value().string_value
-        self.send_on_start = self.get_parameter(
-            'send_on_start').get_parameter_value().bool_value
+        self.frame_id = params['frame_id']
+        self.action_name = ACTION_NAME
+        self.send_on_start = params['send_on_start']
 
         self.action_client = ActionClient(self, FollowWaypoints,
                                           self.action_name)

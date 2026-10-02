@@ -15,13 +15,30 @@
 
 | 書式 | 解決先 |
 |---|---|
-| `pkg://<package>/<rel>` | その package の share ディレクトリ基準 |
+| `$(find-pkg-share <package>)/<rel>` | その package の share ディレクトリ基準 |
 | `config/...` | `src/waypoint_tools` 基準 |
 | `~/...` | ホーム展開 |
 | `/abs/path` | 絶対パスもそのまま可 |
 
-デフォルトの設定ファイルは `src/waypoint_tools/config/params/waypoint_tools_params.yaml` です。
-記録・編集・送信は src 側の waypoint を共通で参照し、既定の記録先は
+params YAML は `ParameterFile(allow_substs=True)` で launch 置換
+（`$(find-pkg-share ...)`、`$(env HOME)` など）を展開してから読み込みます。
+launch 引数（`map_yaml_path:=...` など）の値も同様に展開します。
+launch 引数の名前は params YAML のキー名と同じで、指定するとファイルの値より優先されます。
+
+```yaml
+emcl2_params_path: $(find-pkg-share orne_box_navigation_executor)/config/params/nav2_params.yaml
+```
+
+- ROS 1 の `$(find <package>)` は使えません。
+- コメント内の `$(...)` も展開されるため、存在しない package 名は書かないでください。
+- launch 引数で使うときは、シェルに展開されないようシングルクォートで囲んでください。
+- `record_waypoint_dir` に他 package の share を指定すると、install 側に保存されます。
+
+設定ファイルは `src/waypoint_tools/config/params/waypoint_tools_params.yaml` です
+（`params_file:=` で差し替え可）。launch・node とも**既定値を持たず**、
+すべてこのファイルから読みます。使うキーが無い・空の場合は起動時にエラーになります
+（launch 引数で渡した値はファイルより優先されます）。
+記録・編集・送信は src 側の waypoint を共通で参照し、同梱の設定の記録先は
 `src/waypoint_tools/config/waypoints/tsudanuma/` です。
 ornebox のパスは設定ファイル内にコメントで残しています。
 地図を表示する場合は `config/maps/tsudanuma/tsudanuma_keepout.yaml` と対応する
@@ -63,8 +80,8 @@ ros2 service call /waypoint_editor_node/next_file std_srvs/srv/Trigger {}
 ros2 service call /waypoint_editor_node/prev_file std_srvs/srv/Trigger {}
 ```
 
-edit launch は既定で `map_server` を起動して既存マップを表示します
-（不要なら `start_map:=false`）。
+`edit_start_map: true` なら `map_server` を起動して既存マップを表示します
+（その場だけ切り替えるなら `edit_start_map:=false`）。
 
 
 ## 走行しながら waypoint を自動生成する
@@ -78,10 +95,14 @@ edit launch は既定で `map_server` を起動して既存マップを表示し
 
 - `record_waypoint_dir`: 出力先フォルダ。ここに番号付きの YAML
   （`0.yaml`, `1.yaml`, ...）が `waypoints:` リスト形式で保存されます
-- `record_file_format`: ファイル名の書式（既定 `{index}.yaml`）
-- `record_start_index`: 開始番号（既定 `0`）
-- `distance_interval`（既定 1.0 m）: この距離進んだら打点
-- `yaw_interval_deg`（既定 30°）: 進行方位がこれだけ変化したら打点
+- `record_start_index`: 開始番号（ファイル名は `{番号}.yaml` 固定）
+- `distance_interval` [m]: この距離進んだら打点
+- `yaw_interval_deg` [deg]: 進行方位がこれだけ変化したら打点
+- `min_move` [m]: 直前の打点（最初は記録開始位置）からこの距離未満では、方位が変化しても自動打点しない。その場旋回や位置の揺れによる密集を抑える。終端点の重複判定にも使用する。
+
+最小移動距離はパラメータ YAML の `min_move`、または起動引数で変更できます。
+例: `ros2 launch waypoint_tools record.launch.py min_move:=1.0`。
+手動の `add_waypoint` は距離に関係なく打点します。
 
 ```bash
 ros2 launch waypoint_tools record.launch.py
@@ -96,12 +117,33 @@ ros2 launch waypoint_tools record.launch.py
 そのまま `send.launch.py` の `send_waypoint_path`（フォルダ指定）で
 送信できます。
 
-既存の静的地図を表示したいだけの場合は `map_server` も起動できます。
+### 既存の地図上で emcl2 の推定位置に打点する
+
+作成済みの地図があれば、SLAM の代わりに emcl2 で自己位置推定しながら
+記録できます。params YAML の `localization` を `true` に
+すると（または起動引数 `localization:=true`）、`map_yaml_path`
+（または `map_yaml_path:=`）の地図を使って `emcl2.launch.py` を起動します。
 
 ```bash
-ros2 launch waypoint_tools record.launch.py start_map:=true
-# 表示する地図は params の map_yaml_path
+ros2 launch waypoint_tools record.launch.py localization:=true \
+  map_yaml_path:='$(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanu_map.yaml' \
+  emcl2_params_path:='$(find-pkg-share orne_box_navigation_executor)/config/params/nav2_params.yaml'
 ```
+
+- emcl2 の params は `emcl2_params_path` で指定します（必須）。emcl2 パッケージ既定を使うなら
+  `$(find-pkg-share emcl2)/config/emcl2.param.yaml` を指定します。
+- 地図は keepout ではない地図を指定してください。
+- 起動後、RViz の `2D Pose Estimate` で初期位置を与えるまで打点しません
+  初期位置を与え直したときも
+  基準点をリセットするので、推定位置の飛びで waypoint は打たれません。
+- 必要なトピック: `/scan`（LaserScan）、TF `odom → base_link`。
+
+`emcl2.launch.py` は内部で `map_server`（ノード名 `map_server`）と
+`lifecycle_manager_localization` を起動します。そのため、
+Nav2（`play_waypoints_nav.launch.py` など）や別の emcl2 / map_server が
+動いている状態では `localization:=true` を使わないでください。同名ノードが
+二重に起動します。その場合は `localization:=false` で記録し、
+既に出ている `map → base_link` を使います。
 
 打点の yaw は「基準点から現在の点へ進む向き」になります。
 
@@ -116,7 +158,8 @@ ros2 launch waypoint_tools record.launch.py start_map:=true
   - `insert after`: 直後に waypoint を追加
   - `delete`: その waypoint を削除
   - `save`: 現在の番号の YAML へ保存
-  - `save & next file`: 保存して次の番号へ進む
+  - `save & next file`: 右クリックした waypoint を最後の点として保存し、次の番号へ進む。選択点より後の waypoint は次のファイルへ引き継ぐ。
+    最後の waypoint で押した場合は、`min_move` に関係なく**ロボットの現在位置**に終端点を打ってから保存する。
   - `recording`: 自動打点の一時停止 / 再開（チェックで状態表示）
 
 編集操作中に自動打点が邪魔なときは `recording` のチェックを外して停止し、
@@ -139,7 +182,7 @@ ros2 service call /waypoint_recorder_node/save std_srvs/srv/Trigger {}
 ros2 service call /waypoint_recorder_node/next_file std_srvs/srv/Trigger {}
 ```
 
-`save_on_shutdown` が `true`（既定）なら Ctrl-C 終了時にも自動保存されます。
+Ctrl-C 終了時にも自動保存されます。
 保存した YAML は `waypoint_editor_node` でも引き続き編集できます。
 
 

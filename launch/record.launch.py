@@ -1,104 +1,58 @@
-import yaml
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-from waypoint_tools.paths import resolve_path, source_path
-
-# DEFAULT_MAP = (
-#     'pkg://orne_box_navigation_executor/config/maps/'
-#     'tsudanuma/tsudanuma_keepout.yaml')
-DEFAULT_MAP = 'config/maps/tsudanuma/tsudanuma_keepout.yaml'
-
-
-def load_params(params_file):
-    with open(params_file, 'r') as yaml_file:
-        config = yaml.safe_load(yaml_file) or {}
-
-    if 'waypoint_tools' in config:
-        return config['waypoint_tools'].get('ros__parameters', {})
-    return config.get('ros__parameters', config)
-
-
-def as_bool(value):
-    if isinstance(value, bool):
-        return value
-    return str(value).lower() in ('1', 'true', 'yes', 'on')
-
-
-def as_float(value, default):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+from waypoint_tools.paths import (
+    LaunchParams, declare_overrides, source_path)
 
 
 def launch_setup(context, *args, **kwargs):
-    params_file = LaunchConfiguration('params_file').perform(context)
-    params = load_params(params_file)
+    params = LaunchParams(
+        context, LaunchConfiguration('params_file').perform(context))
 
-    def value(names, param_name=None, default=''):
-        if isinstance(names, str):
-            names = [names]
-        for name in names:
-            override = LaunchConfiguration(name).perform(context)
-            if override:
-                return override
-        return str(params.get(param_name or names[0], default))
-
-    output_dir = resolve_path(value(
-        ['output_dir', 'record_waypoint_dir'],
-        'record_waypoint_dir', 'config/waypoints/recorded'))
-    output_file_format = value(
-        ['output_file_format', 'record_file_format'],
-        'record_file_format', '{index}.yaml')
-    start_index = value('start_index', 'record_start_index', '0')
-    map_yaml = resolve_path(value(
-        ['map', 'map_yaml_path'], 'map_yaml_path', DEFAULT_MAP))
-    rviz_config = resolve_path(value(
-        ['rviz_config', 'rviz_config_path'], 'rviz_config_path',
-        'config/rviz/waypoint_tools.rviz'))
-    map_frame = value('map_frame', default='map')
-    robot_frame = value('robot_frame', default='base_link')
-    distance_interval = as_float(
-        value('distance_interval', default=''),
-        as_float(params.get('distance_interval'), 1.0))
-    yaw_interval_deg = as_float(
-        value('yaw_interval_deg', default=''),
-        as_float(params.get('yaw_interval_deg'), 30.0))
-    use_sim_time = as_bool(value('use_sim_time', default='false'))
-    # 既定 OFF: SLAM が別途 /map を publish している前提。表示したいときは
-    # start_map:=true。params では制御しない。
-    start_map_arg = LaunchConfiguration('start_map').perform(context)
-    start_map = as_bool(start_map_arg) if start_map_arg else False
+    output_dir = params.path('record_waypoint_dir')
+    start_index = params.int('record_start_index')
+    rviz_config = params.path('rviz_config_path')
+    frame_id = params.str('frame_id')
+    robot_frame = params.str('robot_frame')
+    distance_interval = params.float('distance_interval')
+    yaw_interval_deg = params.float('yaw_interval_deg')
+    min_move = params.float('min_move')
+    use_sim_time = params.bool('use_sim_time')
+    # true: 既存地図上で emcl2 により自己位置推定しながら記録する
+    #       （map_server + emcl2 をこの launch で起動）。
+    #       /initialpose を受けるまでは打点しない。
+    # false: SLAM などが別途 map -> base_link を出している前提で記録する。
+    localization = params.bool('localization')
 
     nodes = []
 
-    if start_map:
-        nodes.extend([
-            Node(
-                package='nav2_map_server',
-                executable='map_server',
-                name='map_server',
-                output='screen',
-                parameters=[{
-                    'yaml_filename': map_yaml,
-                    'use_sim_time': use_sim_time,
-                }],
-            ),
-            Node(
-                package='nav2_lifecycle_manager',
-                executable='lifecycle_manager',
-                name='lifecycle_manager_waypoint_tools_record_map',
-                output='screen',
-                parameters=[{
-                    'autostart': True,
-                    'node_names': ['map_server'],
-                    'use_sim_time': use_sim_time,
-                }],
-            ),
-        ])
+    if localization:
+        map_yaml = params.path('map_yaml_path')
+        if not os.path.isfile(map_yaml):
+            raise RuntimeError(
+                f'localization:=true requires an existing map: {map_yaml}')
+        # emcl2.launch.py が map_server と lifecycle_manager_localization も起動する。
+        emcl2_args = {
+            'map': map_yaml,
+            'params_file': params.path('emcl2_params_path'),
+            'use_sim_time': str(use_sim_time).lower(),
+        }
+        nodes.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(
+                get_package_share_directory('emcl2'),
+                'launch', 'emcl2.launch.py')),
+            launch_arguments=emcl2_args.items(),
+        ))
 
     nodes.append(
         Node(
@@ -108,12 +62,13 @@ def launch_setup(context, *args, **kwargs):
             output='screen',
             parameters=[{
                 'output_dir': output_dir,
-                'output_file_format': output_file_format,
-                'start_index': int(start_index),
-                'map_frame': map_frame,
+                'start_index': start_index,
+                'frame_id': frame_id,
                 'robot_frame': robot_frame,
                 'distance_interval': distance_interval,
                 'yaw_interval_deg': yaw_interval_deg,
+                'min_move': min_move,
+                'wait_for_initialpose': localization,
                 'use_sim_time': use_sim_time,
             }],
         )
@@ -142,20 +97,19 @@ def generate_launch_description():
             'params_file',
             default_value=default_params_file,
             description='Waypoint tools parameter file.'),
-        DeclareLaunchArgument('output_dir', default_value=''),
-        DeclareLaunchArgument('record_waypoint_dir', default_value=''),
-        DeclareLaunchArgument('output_file_format', default_value=''),
-        DeclareLaunchArgument('record_file_format', default_value=''),
-        DeclareLaunchArgument('start_index', default_value=''),
-        DeclareLaunchArgument('map', default_value=''),
-        DeclareLaunchArgument('map_yaml_path', default_value=''),
-        DeclareLaunchArgument('rviz_config', default_value=''),
-        DeclareLaunchArgument('rviz_config_path', default_value=''),
-        DeclareLaunchArgument('map_frame', default_value=''),
-        DeclareLaunchArgument('robot_frame', default_value=''),
-        DeclareLaunchArgument('distance_interval', default_value=''),
-        DeclareLaunchArgument('yaw_interval_deg', default_value=''),
-        DeclareLaunchArgument('use_sim_time', default_value=''),
-        DeclareLaunchArgument('start_map', default_value=''),
+        *declare_overrides([
+            'record_waypoint_dir',
+            'record_start_index',
+            'map_yaml_path',
+            'rviz_config_path',
+            'emcl2_params_path',
+            'frame_id',
+            'robot_frame',
+            'distance_interval',
+            'yaw_interval_deg',
+            'min_move',
+            'use_sim_time',
+            'localization',
+        ]),
         OpaqueFunction(function=launch_setup),
     ])

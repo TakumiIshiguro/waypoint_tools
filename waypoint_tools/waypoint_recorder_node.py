@@ -3,9 +3,16 @@
 
 TF ``map`` -> ``base_link`` を周期ポーリングし、基準点からの移動距離
 または進行方位の変化がしきい値を超えたら現在位置に waypoint を打点する。
+ただし基準点から ``min_move`` 未満の移動では自動打点しない。
 記録開始直後やファイル切り替え直後は waypoint を打たず、動き出して
 しきい値を超えてから最初の点が置かれる。``next_file`` を呼ぶと現在位置に
 waypoint を打ってから保存し、次の番号のファイルへ移る。
+右クリックの ``save & next file`` は選択点まで保存し、後続点を次へ引き継ぐ。
+最後の点で押した場合は ``min_move`` に関係なくロボットの現在位置で終端する。
+
+``wait_for_initialpose`` が true（emcl2 で自己位置推定するとき）は
+``/initialpose`` を受けるまで打点しない。``/initialpose`` を受けるたびに
+基準点をリセットし、推定位置の飛びを移動とみなして打点しないようにする。
 
 記録中の waypoint は RViz の interactive marker でそのままドラッグ編集・
 右クリックメニュー操作でき、生成結果は waypoint_follower 形式の YAML
@@ -16,8 +23,9 @@ import math
 import os
 
 import rclpy
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, PoseWithCovarianceStamped
 from interactive_markers import InteractiveMarkerServer, MenuHandler
+from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.time import Time
 from std_srvs.srv import Trigger
@@ -29,8 +37,10 @@ from visualization_msgs.msg import (
 )
 
 from waypoint_tools.action_sender import quaternion_to_yaw
-from waypoint_tools.interactive_waypoints import build_waypoint_marker
-from waypoint_tools.paths import source_path
+from waypoint_tools.interactive_waypoints import (
+    ROUTE_TOPIC, build_waypoint_marker)
+from waypoint_tools.node_params import (
+    BOOL, DOUBLE, INTEGER, STRING, require_parameters)
 from waypoint_tools.waypoint_yaml import (
     empty_config,
     get_xyz_yaw,
@@ -40,7 +50,16 @@ from waypoint_tools.waypoint_yaml import (
 )
 
 
-DEFAULT_OUTPUT_DIR = source_path('config', 'waypoints', 'recorded')
+# 出力ファイル名。フォルダモードは数字順に並べるので番号だけにする。
+OUTPUT_FILE_FORMAT = '{index}.yaml'
+# TF をポーリングする周期 [Hz]。
+POLL_RATE = 10.0
+# RViz の waypoint マーカーの大きさ [m]。
+MARKER_SCALE = 1.0
+# RViz の "2D Pose Estimate" が publish する topic。
+INITIALPOSE_TOPIC = '/initialpose'
+# /initialpose 受信後、推定が落ち着くまで TF を使わない時間 [s]。
+INITIALPOSE_SETTLE_SEC = 1.0
 
 
 def normalize_angle(angle):
@@ -51,43 +70,28 @@ class WaypointRecorderNode(Node):
     def __init__(self):
         super().__init__('waypoint_recorder_node')
 
-        self.declare_parameter('output_dir', DEFAULT_OUTPUT_DIR)
-        self.declare_parameter('output_file_format', '{index}.yaml')
-        self.declare_parameter('start_index', 0)
-        self.declare_parameter('map_frame', 'map')
-        self.declare_parameter('robot_frame', 'base_link')
-        self.declare_parameter('route_topic', '/waypoint_tools/routes')
-        self.declare_parameter('distance_interval', 1.0)
-        self.declare_parameter('yaw_interval_deg', 30.0)
-        self.declare_parameter('min_move', 0.15)
-        self.declare_parameter('poll_rate', 10.0)
-        self.declare_parameter('goal_radius', 1.0)
-        self.declare_parameter('save_on_shutdown', True)
+        params = require_parameters(self, {
+            'output_dir': STRING,
+            'start_index': INTEGER,
+            'frame_id': STRING,
+            'robot_frame': STRING,
+            'distance_interval': DOUBLE,
+            'yaw_interval_deg': DOUBLE,
+            'min_move': DOUBLE,
+            'wait_for_initialpose': BOOL,
+        })
 
-        self.output_dir = os.path.expanduser(self.get_parameter(
-            'output_dir').get_parameter_value().string_value)
-        self.output_file_format = self.get_parameter(
-            'output_file_format').get_parameter_value().string_value
-        self.file_index = self.get_parameter(
-            'start_index').get_parameter_value().integer_value
-        self.map_frame = self.get_parameter(
-            'map_frame').get_parameter_value().string_value
-        self.robot_frame = self.get_parameter(
-            'robot_frame').get_parameter_value().string_value
-        route_topic = self.get_parameter(
-            'route_topic').get_parameter_value().string_value
-        self.distance_interval = self.get_parameter(
-            'distance_interval').get_parameter_value().double_value
-        self.yaw_interval = math.radians(self.get_parameter(
-            'yaw_interval_deg').get_parameter_value().double_value)
-        self.min_move = self.get_parameter(
-            'min_move').get_parameter_value().double_value
-        poll_rate = self.get_parameter(
-            'poll_rate').get_parameter_value().double_value
-        self.goal_radius = self.get_parameter(
-            'goal_radius').get_parameter_value().double_value
-        self.save_on_shutdown = self.get_parameter(
-            'save_on_shutdown').get_parameter_value().bool_value
+        self.output_dir = os.path.expanduser(params['output_dir'])
+        self.file_index = params['start_index']
+        self.map_frame = params['frame_id']
+        self.robot_frame = params['robot_frame']
+        self.distance_interval = params['distance_interval']
+        self.yaw_interval = math.radians(params['yaw_interval_deg'])
+        self.min_move = params['min_move']
+        self.waiting_initialpose = params['wait_for_initialpose']
+        self.initialpose_settle = Duration(seconds=INITIALPOSE_SETTLE_SEC)
+        # /initialpose 直後は自己位置推定が飛ぶので、この時刻までは TF を使わない。
+        self.settle_until = None
 
         self.config = empty_config()
 
@@ -99,7 +103,10 @@ class WaypointRecorderNode(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        self.route_pub = self.create_publisher(MarkerArray, route_topic, 10)
+        self.route_pub = self.create_publisher(MarkerArray, ROUTE_TOPIC, 10)
+        self.initialpose_sub = self.create_subscription(
+            PoseWithCovarianceStamped, INITIALPOSE_TOPIC,
+            self.initialpose_callback, 10)
         # 直近で publish した route セグメント数。next_file / clear などで
         # waypoint が減ったとき、余った古い marker を DELETE するのに使う。
         self._published_route_count = 0
@@ -124,17 +131,22 @@ class WaypointRecorderNode(Node):
             Trigger, '~/resume', self.resume_callback)
 
         self.poll_timer = self.create_timer(
-            1.0 / max(poll_rate, 1.0), self.poll_callback)
+            1.0 / POLL_RATE, self.poll_callback)
         self.route_timer = self.create_timer(0.5, self.publish_routes)
 
         self.get_logger().info(
             f'Recording waypoints -> {self._current_path()}')
         self.get_logger().info(
             f'distance_interval={self.distance_interval} m, '
-            f'yaw_interval={math.degrees(self.yaw_interval):.1f} deg')
+            f'yaw_interval={math.degrees(self.yaw_interval):.1f} deg, '
+            f'min_move={self.min_move} m')
+        if self.waiting_initialpose:
+            self.get_logger().info(
+                f'Waiting for {INITIALPOSE_TOPIC} (RViz "2D Pose Estimate") '
+                'before recording.')
 
     def _current_path(self):
-        name = self.output_file_format.format(index=self.file_index)
+        name = OUTPUT_FILE_FORMAT.format(index=self.file_index)
         return os.path.join(self.output_dir, name)
 
     @property
@@ -156,14 +168,11 @@ class WaypointRecorderNode(Node):
         self.menu_handler.setCheckState(
             self._rec_handle, MenuHandler.CHECKED)
 
-    def _marker_scale(self):
-        return max(self.goal_radius, 0.3)
-
     def _insert_marker(self, index):
         x, y, _, yaw = get_xyz_yaw(self.waypoints[index])
         marker = build_waypoint_marker(
             str(index), self.map_frame, x, y, yaw,
-            self._marker_scale(), f'wp {index}')
+            MARKER_SCALE, f'wp {index}')
         self.server.insert(marker, feedback_callback=self._feedback_callback)
         self.server.setCallback(
             marker.name, self.pose_update_callback,
@@ -232,24 +241,49 @@ class WaypointRecorderNode(Node):
             self.get_logger().error(f'Save failed: {exc}')
 
     def _menu_next_file(self, feedback):
+        index = int(feedback.marker_name)
+        # 最後の点ならロボットの現在位置で終端する（min_move は見ない）。
+        end_index = None if index == len(self.waypoints) - 1 else index
         try:
-            self._advance_file()
+            self._advance_file(end_index, force_final=True)
         except Exception as exc:  # noqa: BLE001
             self.get_logger().error(f'next_file failed: {exc}')
 
-    def _advance_file(self):
-        """現在位置に waypoint を打ってから保存し、次の番号へ切り替える."""
-        transition_xy = self._place_final_waypoint()
-        if transition_xy is None:
-            raise RuntimeError('TF unavailable; cannot place final waypoint.')
+    def _advance_file(self, end_index=None, force_final=False):
+        """選択点まで（サービスでは現在位置まで）保存し、次の番号へ移る."""
+        remaining = []
+        original_config = self.config
+        if end_index is None:
+            transition_xy = self._place_final_waypoint(force=force_final)
+            if transition_xy is None:
+                raise RuntimeError(
+                    'Pose unavailable (TF or initial pose); '
+                    'cannot place final waypoint.')
+        else:
+            if not 0 <= end_index < len(self.waypoints):
+                raise ValueError(f'Invalid waypoint index: {end_index}')
+            x, y, _, _ = get_xyz_yaw(self.waypoints[end_index])
+            transition_xy = (x, y)
+            remaining = self.waypoints[end_index + 1:]
+            self.config = copy.deepcopy(self.config)
+            self.config['waypoints'] = self.waypoints[:end_index + 1]
 
         saved_path = self._current_path()
-        self.save_waypoints()
+        try:
+            self.save_waypoints()
+        except Exception:
+            self.config = original_config
+            raise
         self.file_index += 1
         self.config = empty_config()
-        # 次ファイルはこの遷移点を基準にする。切り替え直後は打点しない。
+        self.config['waypoints'] = remaining
+        # 後続点がなければ遷移点を基準にする。切り替え直後は打点しない。
         self.ref_xy = transition_xy
         self.last_heading = None
+        if remaining:
+            x, y, _, _ = get_xyz_yaw(remaining[-1])
+            self.ref_xy = (x, y)
+            self.rebuild_headings()
         self.rebuild_markers()
         self.get_logger().info(
             f'Finished {saved_path}. Now recording -> {self._current_path()}')
@@ -280,9 +314,36 @@ class WaypointRecorderNode(Node):
             f'Recording {"resumed" if value else "paused"}.')
 
     # ------------------------------------------------------------------
+    # 自己位置推定
+    # ------------------------------------------------------------------
+    def initialpose_callback(self, msg):
+        # 推定位置が飛ぶので基準点を捨て、落ち着いてから測り直す。
+        self.ref_xy = None
+        self.settle_until = self.get_clock().now() + self.initialpose_settle
+        if self.waiting_initialpose:
+            self.waiting_initialpose = False
+            self.get_logger().info('Initial pose received. Recording starts.')
+        else:
+            self.get_logger().info('Initial pose updated. Reference reset.')
+
+    def _pose_ready(self):
+        if self.waiting_initialpose:
+            self.get_logger().info(
+                'Waiting for initial pose; waypoints are not placed yet.',
+                throttle_duration_sec=10.0)
+            return False
+        if self.settle_until is not None:
+            if self.get_clock().now() < self.settle_until:
+                return False
+            self.settle_until = None
+        return True
+
+    # ------------------------------------------------------------------
     # ポーリング
     # ------------------------------------------------------------------
     def lookup_pose(self):
+        if not self._pose_ready():
+            return None
         try:
             tf = self.tf_buffer.lookup_transform(
                 self.map_frame, self.robot_frame, Time())
@@ -349,18 +410,19 @@ class WaypointRecorderNode(Node):
             return math.atan2(y - self.ref_xy[1], x - self.ref_xy[0])
         return tf_yaw
 
-    def _place_final_waypoint(self):
+    def _place_final_waypoint(self, force=False):
         """現在位置に終端 waypoint を打つ。
 
-        既存の最終点と ``min_move`` 未満しか離れていなければ重複を避けて
-        打点しない。戻り値は現在位置 (x, y)、TF が無ければ None.
+        ``force`` が False なら、既存の最終点と ``min_move`` 未満しか離れて
+        いなければ重複を避けて打点しない。戻り値は現在位置 (x, y)、
+        位置が取れなければ None.
         """
         pose = self.lookup_pose()
         if pose is None:
             return None
         x, y, tf_yaw = pose
         near_last = False
-        if self.waypoints:
+        if self.waypoints and not force:
             lx, ly, _, _ = get_xyz_yaw(self.waypoints[-1])
             near_last = math.hypot(x - lx, y - ly) < self.min_move
         if not near_last:
@@ -371,7 +433,7 @@ class WaypointRecorderNode(Node):
         pose = self.lookup_pose()
         if pose is None:
             response.success = False
-            response.message = 'TF unavailable.'
+            response.message = 'Pose unavailable (TF or initial pose).'
             return response
         x, y, tf_yaw = pose
         heading = self._heading_from_ref(x, y, tf_yaw)
@@ -494,8 +556,6 @@ class WaypointRecorderNode(Node):
         self.route_pub.publish(marker_array)
 
     def on_shutdown(self):
-        if not self.save_on_shutdown:
-            return
         # next_file と同様、最後のルートも停止位置で終端させる。
         try:
             self._place_final_waypoint()

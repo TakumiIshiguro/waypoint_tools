@@ -8,6 +8,9 @@ from visualization_msgs.msg import (
 
 from waypoint_tools.action_sender import yaw_to_quaternion
 
+# 経路マーカーの topic。RViz 設定（config/rviz/waypoint_tools.rviz）と揃える。
+ROUTE_TOPIC = '/waypoint_tools/routes'
+
 
 def make_disc_marker(scale):
     marker = Marker()
