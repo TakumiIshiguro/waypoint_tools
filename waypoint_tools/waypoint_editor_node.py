@@ -17,11 +17,12 @@ from visualization_msgs.msg import (
 
 from waypoint_tools.action_sender import quaternion_to_yaw
 from waypoint_tools.interactive_waypoints import (
-    ROUTE_TOPIC, build_waypoint_marker)
+    DISC_COLOR, ROUTE_TOPIC, STOP_DISC_COLOR, build_waypoint_marker)
 from waypoint_tools.node_params import STRING, require_parameters
 from waypoint_tools.waypoint_yaml import (
     get_waypoints,
     get_xyz_yaw,
+    is_stop,
     list_waypoint_yamls,
     load_config,
     save_config,
@@ -183,14 +184,34 @@ class WaypointEditorNode(Node):
         self.publish_routes()
 
     def make_marker(self, index, x, y, z, yaw):
+        stop = is_stop(get_waypoints(self.config)[index])
         marker = build_waypoint_marker(
             str(index), self.frame_id, x, y, yaw,
-            self.get_marker_scale(index), f'waypoint {index}')
+            self.get_marker_scale(index),
+            f'waypoint {index}' + (' (stop)' if stop else ''),
+            STOP_DISC_COLOR if stop else DISC_COLOR)
         self.server.insert(marker, feedback_callback=self.feedback_callback)
         self.server.setCallback(
             marker.name, self.pose_update_callback,
             InteractiveMarkerFeedback.POSE_UPDATE)
+        # MenuHandler のチェック状態は apply 時点の値が marker に焼き込まれる。
+        self.menu_handler.setCheckState(
+            self.stop_handle,
+            MenuHandler.CHECKED if stop else MenuHandler.UNCHECKED)
         self.menu_handler.apply(self.server, marker.name)
+
+    def stop_callback(self, feedback):
+        index = int(feedback.marker_name)
+        waypoint = get_waypoints(self.config)[index]
+        if is_stop(waypoint):
+            waypoint.pop('stop', None)
+        else:
+            waypoint['stop'] = True
+        x, y, z, yaw = get_xyz_yaw(waypoint)
+        self.make_marker(index, x, y, z, yaw)
+        self.server.applyChanges()
+        self.get_logger().info(
+            f'waypoint {index}: stop={is_stop(waypoint)} (save to keep)')
 
     def get_marker_scale(self, index):
         waypoint = get_waypoints(self.config)[index]

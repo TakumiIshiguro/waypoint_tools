@@ -11,17 +11,18 @@ from waypoint_tools.action_sender import yaw_to_quaternion
 # 経路マーカーの topic。RViz 設定（config/rviz/waypoint_tools.rviz）と揃える。
 ROUTE_TOPIC = '/waypoint_tools/routes'
 
+# 円盤の色 (r, g, b, a)。停止点（stop: true）は赤で区別する。
+DISC_COLOR = (0.1, 0.7, 1.0, 0.45)
+STOP_DISC_COLOR = (1.0, 0.1, 0.1, 0.6)
 
-def make_disc_marker(scale):
+
+def make_disc_marker(scale, color=DISC_COLOR):
     marker = Marker()
     marker.type = Marker.CYLINDER
     marker.scale.x = scale
     marker.scale.y = scale
     marker.scale.z = 0.04
-    marker.color.r = 0.1
-    marker.color.g = 0.7
-    marker.color.b = 1.0
-    marker.color.a = 0.45
+    marker.color.r, marker.color.g, marker.color.b, marker.color.a = color
     return marker
 
 
@@ -38,7 +39,8 @@ def make_arrow_marker(scale):
     return marker
 
 
-def build_waypoint_marker(name, frame_id, x, y, yaw, scale, description=''):
+def build_waypoint_marker(name, frame_id, x, y, yaw, scale, description='',
+                          disc_color=DISC_COLOR):
     """位置移動(平面) + yaw 回転 + メニュー用ボタンを持つ InteractiveMarker."""
     marker = InteractiveMarker()
     marker.header.frame_id = frame_id
@@ -59,7 +61,7 @@ def build_waypoint_marker(name, frame_id, x, y, yaw, scale, description=''):
     move_control.interaction_mode = InteractiveMarkerControl.MOVE_PLANE
     move_control.orientation_mode = InteractiveMarkerControl.INHERIT
     move_control.always_visible = True
-    move_control.markers.append(make_disc_marker(scale))
+    move_control.markers.append(make_disc_marker(scale, disc_color))
     marker.controls.append(move_control)
 
     rotate_control = InteractiveMarkerControl()

@@ -71,6 +71,7 @@ RViz の `Interact` ツールを選択し、waypoint marker を右クリック�
 | `insert after` | 直後に waypoint を追加 |
 | `delete` | その waypoint を削除 |
 | `save` | 現在開いている YAML に保存 |
+| `stop` | チェックで停止点（`stop: true`）にする / 外すと通過点。停止点は赤い円盤と `(stop)` で表示。反映には `save` が必要 |
 | `prev file` / `next file` | フォルダ指定時、前 / 次のファイルへ（未保存の変更は破棄） |
 
 サービスでも同じ操作ができます:
