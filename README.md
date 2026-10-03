@@ -230,10 +230,8 @@ ros2 launch waypoint_tools send.launch.py \
 
 ```bash
 # 停止中から再開
-#   stop 点 -> 次の点へ / pause・失敗 -> 現在の点を再送
+#   stop 点 -> 次の点へ / 失敗 -> 現在の点を再送
 ros2 service call /waypoint_sender_node/next_wp std_srvs/srv/Trigger {}
-# 一時停止（現在の goal をキャンセル）
-ros2 service call /waypoint_sender_node/pause std_srvs/srv/Trigger {}
 # 現在の点を飛ばして次の点へ
 ros2 service call /waypoint_sender_node/skip std_srvs/srv/Trigger {}
 # 最初の点からやり直す

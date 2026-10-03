@@ -25,7 +25,6 @@ ACTION_NAME = '/navigate_to_pose'
 IDLE = 'idle'            # 未送信
 RUNNING = 'running'      # 走行中
 STOPPED = 'stopped'      # stop: true の点に到達し、next_wp 待ち
-PAUSED = 'paused'        # pause で停止中
 FINISHED = 'finished'    # 最後の点に到達
 FAILED = 'failed'        # 再送しても到達できず停止
 
@@ -70,7 +69,6 @@ class WaypointSenderNode(Node):
 
         self.create_service(Trigger, '~/send_all', self.send_all_callback)
         self.create_service(Trigger, '~/next_wp', self.next_wp_callback)
-        self.create_service(Trigger, '~/pause', self.pause_callback)
         self.create_service(Trigger, '~/skip', self.skip_callback)
 
         self.control_timer = self.create_timer(0.1, self.control_callback)
@@ -242,12 +240,12 @@ class WaypointSenderNode(Node):
     def next_wp_callback(self, request, response):
         """停止状態から走行を再開する.
 
-        stop 点 -> 次の点へ / pause・failed -> 現在の点を再送。
+        stop 点 -> 次の点へ / failed -> 現在の点を再送。
         """
         if self.state == STOPPED:
             self._advance()
             result = (True, f'Resumed to waypoint {self.wp_index}.')
-        elif self.state in (PAUSED, FAILED):
+        elif self.state == FAILED:
             self._go_to(self.wp_index)
             result = (True, f'Resumed waypoint {self.wp_index}.')
         elif self.state == IDLE:
@@ -257,14 +255,6 @@ class WaypointSenderNode(Node):
         else:
             result = (False, 'Already running.')
         return self._respond(response, result)
-
-    def pause_callback(self, request, response):
-        if self.state != RUNNING:
-            return self._respond(response, (False, f'Not running ({self.state}).'))
-        self._cancel_current()
-        self.state = PAUSED
-        return self._respond(
-            response, (True, f'Paused at waypoint {self.wp_index}.'))
 
     def skip_callback(self, request, response):
         if self.state in (IDLE, FINISHED):
