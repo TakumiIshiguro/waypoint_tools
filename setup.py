@@ -26,7 +26,7 @@ setup(
     zip_safe=True,
     maintainer='takumi',
     maintainer_email='takumi@example.com',
-    description='GUI waypoint editor and FollowWaypoints sender.',
+    description='GUI waypoint editor and NavigateToPose waypoint sender.',
     license='TODO',
     tests_require=['pytest'],
     entry_points={

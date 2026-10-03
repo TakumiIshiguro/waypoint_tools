@@ -1,11 +1,12 @@
 # waypoint_tools
 
-`waypoint_tools` は、waypoint YAML を RViz 上で編集し、その waypoint を Nav2 の `FollowWaypoints` に送信するための ROS 2 パッケージです。
+`waypoint_tools` は、waypoint YAML を RViz 上で編集し、その waypoint を順に Nav2 の `NavigateToPose` に送って走行させるための ROS 2 パッケージです。
+経由点の管理（どの点を目指すか、どこで止まるか）はこのパッケージが行い、Nav2 の `waypoint_follower` は使いません。
 
 このパッケージには、実行用 node が3つあります。
 
 - `waypoint_editor_node`: RViz の interactive marker で waypoint を編集する node
-- `waypoint_sender_node`: waypoint YAML を読み込み、Nav2 に送信する node
+- `waypoint_sender_node`: waypoint YAML を読み込み、1 点ずつ Nav2 に送信して走行させる node
 - `waypoint_recorder_node`: ロボットを走行させながら経路上に waypoint を自動生成する node
 
 ## パスの書き方
@@ -188,26 +189,63 @@ Ctrl-C 終了時にも自動保存されます。
 
 ## Nav2 に waypoint を送信する
 
-`config/params/waypoint_tools_params.yaml` の `send_waypoint_path` を指定します。
-`edit_waypoint_path` と同じく **ファイルでもフォルダでも**指定できます。
+`waypoint_sender_node` は waypoint を 1 点ずつ Nav2 の `NavigateToPose`
+（`/navigate_to_pose`）に送ります。
 
-- **ファイル** を指定 → その 1 ファイルを送る
-- **フォルダ** を指定 → 中の `*.yaml` を数値順（`0, 1, 2, ..., 10`）に並べ、
-  `/waypoint_sender_node/next_file` / `prev_file` で 1 本ずつ送る。
-  recorder の出力フォルダをそのまま指定できる
+- **通過点**: ロボット（TF `frame_id -> robot_frame`）が `switch_radius` [m]
+  以内に近づいた時点で次の点を送ります。goal が置き換わるだけなので
+  **止まらずに**経路追従を続けます。
+- **停止点**（`stop: true`）: Nav2 が到達判定するまで走って停止し、
+  `~/next_wp`（ジョイスティックの next_wp ボタン）を待ちます。
+- **最後の点**: YAML の最後の点は到達まで走って止まり、走行を終了します。
+
+`switch_radius` は Nav2 の goal_checker の `xy_goal_tolerance` より大きくしてください
+（小さいと通過点ごとに Nav2 の到達判定が先に出て減速します）。
+
+停止させたい点には YAML で `stop: true` を書きます（書かない点は通過点）。
+
+```yaml
+waypoints:
+- x: 10.0
+  y: 2.0
+  z: 0.0
+  yaw: 0.0
+- x: 15.0
+  y: 2.0
+  z: 0.0
+  yaw: 0.0
+  stop: true   # ここで止まり、next_wp で再開
+```
+
+`config/params/waypoint_tools_params.yaml` の `send_waypoint_path` に、
+送信する YAML **ファイル**を 1 つ指定します（フォルダは指定できません）。
+
+| パラメータ | 意味 |
+|---|---|
+| `switch_radius` | 通過点で次の点へ切り替える距離 [m] |
+| `max_retries` | 失敗した点を再送する回数 |
+| `skip_on_failure` | 再送しても失敗したら次の点へ進むか（false なら停止して next_wp 待ち） |
+| `robot_frame` | 距離判定に使うロボットの TF フレーム |
 
 Nav2 を起動した後、sender を起動します。
 
 ```bash
 ros2 launch waypoint_tools send.launch.py
-# CLI で上書きする例（ファイル / フォルダどちらでも可）
+# CLI で上書きする例
 ros2 launch waypoint_tools send.launch.py \
-  send_waypoint_path:=/path/to/waypoint_tools/config/waypoints/recorded
+  send_waypoint_path:=/path/to/waypoint_tools/config/waypoints/route.yaml
 ```
 
-フォルダ指定時、1 つの YAML を送り終えたら次を送ります。
+### サービス
 
 ```bash
-ros2 service call /waypoint_sender_node/next_file std_srvs/srv/Trigger {}
-ros2 service call /waypoint_sender_node/prev_file std_srvs/srv/Trigger {}
+# 停止中から再開
+#   stop 点 -> 次の点へ / pause・失敗 -> 現在の点を再送
+ros2 service call /waypoint_sender_node/next_wp std_srvs/srv/Trigger {}
+# 一時停止（現在の goal をキャンセル）
+ros2 service call /waypoint_sender_node/pause std_srvs/srv/Trigger {}
+# 現在の点を飛ばして次の点へ
+ros2 service call /waypoint_sender_node/skip std_srvs/srv/Trigger {}
+# 最初の点からやり直す
+ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger {}
 ```

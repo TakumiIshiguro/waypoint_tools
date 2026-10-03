@@ -222,6 +222,7 @@ class WaypointEditorNode(Node):
         waypoints = get_waypoints(self.config)
         x, y, z, yaw = get_xyz_yaw(waypoints[index])
         new_waypoint = copy.deepcopy(waypoints[index])
+        new_waypoint.pop('stop', None)
         set_xyz_yaw(new_waypoint, x + 0.5, y, z, yaw)
         waypoints.insert(index + 1, new_waypoint)
         self.rebuild_markers()

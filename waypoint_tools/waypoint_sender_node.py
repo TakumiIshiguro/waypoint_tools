@@ -1,76 +1,91 @@
 #!/usr/bin/env python3
+import math
 import os
 
 import rclpy
-from nav2_msgs.action import FollowWaypoints
+from action_msgs.msg import GoalStatus
+from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.time import Time
 from std_srvs.srv import Trigger
+from tf2_ros import Buffer, TransformException, TransformListener
 
-from waypoint_tools.action_sender import make_follow_waypoints_goal
-from waypoint_tools.node_params import BOOL, STRING, require_parameters
-from waypoint_tools.waypoint_yaml import list_waypoint_yamls, load_config
+from waypoint_tools.action_sender import make_navigate_to_pose_goal
+from waypoint_tools.node_params import (
+    BOOL, DOUBLE, INTEGER, STRING, require_parameters)
+from waypoint_tools.waypoint_yaml import (
+    get_waypoints, get_xyz_yaw, is_stop, load_config)
 
 
-# Nav2 の FollowWaypoints action。
-ACTION_NAME = '/follow_waypoints'
+# Nav2 の NavigateToPose action。経由点の管理はこの node が行う。
+ACTION_NAME = '/navigate_to_pose'
+
+# 状態
+IDLE = 'idle'            # 未送信
+RUNNING = 'running'      # 走行中
+STOPPED = 'stopped'      # stop: true の点に到達し、next_wp 待ち
+PAUSED = 'paused'        # pause で停止中
+FINISHED = 'finished'    # 最後の点に到達
+FAILED = 'failed'        # 再送しても到達できず停止
 
 
 class WaypointSenderNode(Node):
     def __init__(self):
         super().__init__('waypoint_sender_node')
 
-        # yaml_path はファイル/フォルダどちらでも可（editor と同じ）。
-        #   ファイル -> その 1 ファイルを送る
-        #   フォルダ -> 中の *.yaml を数値順に並べ、~/next_file /~/prev_file で送る
         params = require_parameters(self, {
             'yaml_path': STRING,
             'frame_id': STRING,
+            'robot_frame': STRING,
             'send_on_start': BOOL,
+            'switch_radius': DOUBLE,
+            'max_retries': INTEGER,
+            'skip_on_failure': BOOL,
         })
 
-        target = os.path.expanduser(params['yaml_path'])
-
-        self.yaml_files = self._resolve_targets(target)
-        self.file_index = 0
+        self.yaml_path = os.path.expanduser(params['yaml_path'])
+        if not os.path.isfile(self.yaml_path):
+            raise RuntimeError(f'yaml_path must be a file: {self.yaml_path}')
+        self.waypoints = []
+        self.wp_index = 0
+        self.state = IDLE
 
         self.frame_id = params['frame_id']
-        self.action_name = ACTION_NAME
+        self.robot_frame = params['robot_frame']
         self.send_on_start = params['send_on_start']
+        self.switch_radius = params['switch_radius']
+        self.max_retries = params['max_retries']
+        self.skip_on_failure = params['skip_on_failure']
 
-        self.action_client = ActionClient(self, FollowWaypoints,
-                                          self.action_name)
-        self.send_service = self.create_service(
-            Trigger, '~/send_all', self.send_all_callback)
-        self.next_service = self.create_service(
-            Trigger, '~/next_file', self.next_file_callback)
-        self.prev_service = self.create_service(
-            Trigger, '~/prev_file', self.prev_file_callback)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        self.action_client = ActionClient(self, NavigateToPose, ACTION_NAME)
+        # goal を送るたびに増やす。古い（先行 goal に置き換えられた）goal の
+        # 結果は世代が合わないので無視する。
+        self.goal_generation = 0
         self.goal_handle = None
-        self.goal_running = False
-        self.sent_on_start = False
+        self.retries = 0
 
+        self.create_service(Trigger, '~/send_all', self.send_all_callback)
+        self.create_service(Trigger, '~/next_wp', self.next_wp_callback)
+        self.create_service(Trigger, '~/pause', self.pause_callback)
+        self.create_service(Trigger, '~/skip', self.skip_callback)
+
+        self.control_timer = self.create_timer(0.1, self.control_callback)
+        self.sent_on_start = False
         if self.send_on_start:
             self.start_timer = self.create_timer(0.5, self.send_once)
 
-    # -----------------------------------------------------------
-    # 対象（ファイル or フォルダ）の解決
-    # -----------------------------------------------------------
-    def _resolve_targets(self, target):
-        if os.path.isdir(target):
-            files = list_waypoint_yamls(target)
-            if not files:
-                raise RuntimeError(f'No yaml files in directory: {target}')
-            self.get_logger().info(
-                f'Folder mode: {len(files)} yaml files in {target}')
-            return files
-        self.get_logger().info(f'File mode: {target}')
-        return [target]
+    def _is_hold_point(self, index):
+        """到達（Nav2 の SUCCEEDED）まで待つ点か。stop 指定の点と最後の点."""
+        return (is_stop(self.waypoints[index])
+                or index == len(self.waypoints) - 1)
 
-    @property
-    def current_path(self):
-        return self.yaml_files[self.file_index]
-
+    # -----------------------------------------------------------
+    # 起動時の送信
+    # -----------------------------------------------------------
     def send_once(self):
         if self.sent_on_start:
             return
@@ -81,102 +96,183 @@ class WaypointSenderNode(Node):
         except Exception as exc:
             self.get_logger().error(str(exc))
 
-    def send_all_callback(self, request, response):
-        try:
-            self.send_all()
-        except Exception as exc:
-            response.success = False
-            response.message = str(exc)
-            return response
+    def send_all(self):
+        """YAML を読み込み、最初の waypoint から走行を始める."""
+        config = load_config(self.yaml_path)
+        waypoints = get_waypoints(config)
+        if not waypoints:
+            raise RuntimeError('No waypoints to send.')
+        if not self.action_client.wait_for_server(timeout_sec=10.0):
+            raise RuntimeError(f'{ACTION_NAME} is not available.')
 
-        response.success = True
-        response.message = 'Sent all waypoints.'
+        self.waypoints = waypoints
+        stops = [i for i, wp in enumerate(waypoints) if is_stop(wp)]
+        self.get_logger().info(
+            f'Loaded {len(waypoints)} waypoints from {self.yaml_path} '
+            f'(stop: {stops}).')
+        self._go_to(0)
+
+    # -----------------------------------------------------------
+    # 走行制御
+    # -----------------------------------------------------------
+    def _go_to(self, index):
+        self.wp_index = index
+        self.retries = 0
+        self._send_current()
+
+    def _send_current(self):
+        self.goal_generation += 1
+        generation = self.goal_generation
+        goal = make_navigate_to_pose_goal(
+            self.waypoints[self.wp_index], self.frame_id,
+            self.get_clock().now().to_msg())
+        self.state = RUNNING
+        self.goal_handle = None
+        hold = ' (stop)' if is_stop(self.waypoints[self.wp_index]) else ''
+        self.get_logger().info(
+            f'Waypoint {self.wp_index}/{len(self.waypoints) - 1}{hold}')
+        future = self.action_client.send_goal_async(goal)
+        future.add_done_callback(
+            lambda f: self._goal_response_callback(f, generation))
+
+    def _advance(self):
+        if self.wp_index + 1 >= len(self.waypoints):
+            self._finish()
+            return
+        self._go_to(self.wp_index + 1)
+
+    def _finish(self):
+        self.state = FINISHED
+        self.get_logger().info('Reached the last waypoint.')
+
+    def _cancel_current(self):
+        # 世代を進めて、キャンセルした goal の結果を無視させる。
+        self.goal_generation += 1
+        if self.goal_handle is not None:
+            self.goal_handle.cancel_goal_async()
+            self.goal_handle = None
+
+    def _goal_response_callback(self, future, generation):
+        goal_handle = future.result()
+        if generation != self.goal_generation:
+            return
+        if not goal_handle.accepted:
+            self.get_logger().error(
+                f'Goal for waypoint {self.wp_index} rejected.')
+            self._on_failure()
+            return
+        self.goal_handle = goal_handle
+        goal_handle.get_result_async().add_done_callback(
+            lambda f: self._result_callback(f, generation))
+
+    def _result_callback(self, future, generation):
+        if generation != self.goal_generation:
+            return
+        self.goal_handle = None
+        status = future.result().status
+        if status != GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().warn(
+                f'Waypoint {self.wp_index} failed (status {status}).')
+            self._on_failure()
+            return
+
+        waypoint = self.waypoints[self.wp_index]
+        if self.wp_index == len(self.waypoints) - 1:
+            self._finish()
+        elif is_stop(waypoint):
+            self.state = STOPPED
+            self.get_logger().info(
+                f'Stopped at waypoint {self.wp_index}. '
+                'Call ~/next_wp to continue.')
+        else:
+            # switch_radius に入る前に Nav2 が到達判定した場合。
+            self._advance()
+
+    def _on_failure(self):
+        if self.retries < self.max_retries:
+            self.retries += 1
+            self.get_logger().warn(
+                f'Retry waypoint {self.wp_index} '
+                f'({self.retries}/{self.max_retries}).')
+            self._send_current()
+        elif self.skip_on_failure:
+            self.get_logger().warn(f'Skip waypoint {self.wp_index}.')
+            self._advance()
+        else:
+            self.state = FAILED
+            self.get_logger().error(
+                f'Gave up waypoint {self.wp_index}. Call ~/next_wp to retry '
+                'or ~/skip to go to the next waypoint.')
+
+    def control_callback(self):
+        """通過点では switch_radius に入った時点で次の点を送る（停止しない）."""
+        if self.state != RUNNING or self._is_hold_point(self.wp_index):
+            return
+        try:
+            tf = self.tf_buffer.lookup_transform(
+                self.frame_id, self.robot_frame, Time())
+        except TransformException:
+            return
+        x, y, _, _ = get_xyz_yaw(self.waypoints[self.wp_index])
+        dist = math.hypot(x - tf.transform.translation.x,
+                          y - tf.transform.translation.y)
+        if dist <= self.switch_radius:
+            self._advance()
+
+    # -----------------------------------------------------------
+    # サービス
+    # -----------------------------------------------------------
+    @staticmethod
+    def _respond(response, result):
+        response.success, response.message = result
         return response
 
-    # -----------------------------------------------------------
-    # ファイル送り（フォルダ / リストモード共通）
-    # -----------------------------------------------------------
-    def _step_file(self, delta):
-        """delta だけファイルを進めて送信する。戻り値は (成功, メッセージ)."""
-        if len(self.yaml_files) <= 1:
-            return False, 'Only one waypoint YAML is loaded.'
-        if self.goal_running:
-            return False, 'Current FollowWaypoints goal is still running.'
-        new_index = self.file_index + delta
-        if new_index < 0 or new_index >= len(self.yaml_files):
-            edge = 'first' if new_index < 0 else 'last'
-            return False, (
-                f'Already at the {edge} file '
-                f'({self.file_index + 1}/{len(self.yaml_files)}).')
-        self.file_index = new_index
+    def _try_send_all(self):
         try:
             self.send_all()
         except Exception as exc:  # noqa: BLE001
             return False, str(exc)
-        return True, (
-            f'Sent [{self.file_index + 1}/{len(self.yaml_files)}]: '
-            f'{os.path.basename(self.current_path)}')
+        return True, f'Sent {self.yaml_path}'
 
-    def next_file_callback(self, request, response):
-        response.success, response.message = self._step_file(1)
-        return response
+    def send_all_callback(self, request, response):
+        """最初の waypoint からやり直す."""
+        self._cancel_current()
+        return self._respond(response, self._try_send_all())
 
-    def prev_file_callback(self, request, response):
-        response.success, response.message = self._step_file(-1)
-        return response
+    def next_wp_callback(self, request, response):
+        """停止状態から走行を再開する.
 
-    def send_all(self):
-        yaml_path = self.current_path
-        config = load_config(yaml_path)
-        goal = make_follow_waypoints_goal(
-            config, self.frame_id, self.get_clock().now().to_msg())
-
-        if not goal.poses:
-            raise RuntimeError('No waypoints to send.')
-
-        self.get_logger().info(
-            f'Loaded {len(goal.poses)} waypoints from '
-            f'{yaml_path} [{self.file_index + 1}/'
-            f'{len(self.yaml_files)}].')
-        self.get_logger().info(f'Waiting for {self.action_name}...')
-        if not self.action_client.wait_for_server(timeout_sec=10.0):
-            raise RuntimeError(f'{self.action_name} is not available.')
-
-        future = self.action_client.send_goal_async(
-            goal, feedback_callback=self.feedback_callback)
-        future.add_done_callback(self.response_callback)
-        self.goal_running = True
-        self.get_logger().info('FollowWaypoints goal sent.')
-
-    def feedback_callback(self, feedback_msg):
-        current = feedback_msg.feedback.current_waypoint
-        self.get_logger().info(f'Current waypoint: {current}')
-
-    def response_callback(self, future):
-        self.goal_handle = future.result()
-        if not self.goal_handle.accepted:
-            self.get_logger().error('FollowWaypoints goal rejected.')
-            self.goal_running = False
-            return
-
-        self.get_logger().info('FollowWaypoints goal accepted.')
-        result_future = self.goal_handle.get_result_async()
-        result_future.add_done_callback(self.result_callback)
-
-    def result_callback(self, future):
-        result = future.result().result
-        status = future.result().status
-        self.goal_running = False
-        if result.missed_waypoints:
-            self.get_logger().warn(
-                f'Missed waypoints: {result.missed_waypoints}')
-        self.get_logger().info(f'FollowWaypoints finished: {status}')
-        if self.file_index + 1 < len(self.yaml_files):
-            self.get_logger().info(
-                'Last waypoint in current YAML reached. Call '
-                '/waypoint_sender_node/next_file to send the next YAML.')
+        stop 点 -> 次の点へ / pause・failed -> 現在の点を再送。
+        """
+        if self.state == STOPPED:
+            self._advance()
+            result = (True, f'Resumed to waypoint {self.wp_index}.')
+        elif self.state in (PAUSED, FAILED):
+            self._go_to(self.wp_index)
+            result = (True, f'Resumed waypoint {self.wp_index}.')
+        elif self.state == IDLE:
+            result = self._try_send_all()
+        elif self.state == FINISHED:
+            result = (False, 'Already reached the last waypoint.')
         else:
-            self.get_logger().info('All waypoint YAML files have been sent.')
+            result = (False, 'Already running.')
+        return self._respond(response, result)
+
+    def pause_callback(self, request, response):
+        if self.state != RUNNING:
+            return self._respond(response, (False, f'Not running ({self.state}).'))
+        self._cancel_current()
+        self.state = PAUSED
+        return self._respond(
+            response, (True, f'Paused at waypoint {self.wp_index}.'))
+
+    def skip_callback(self, request, response):
+        if self.state in (IDLE, FINISHED):
+            return self._respond(response, (False, f'Nothing to skip ({self.state}).'))
+        self._cancel_current()
+        skipped = self.wp_index
+        self._advance()
+        return self._respond(response, (True, f'Skipped waypoint {skipped}.'))
 
 
 def main(args=None):

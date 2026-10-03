@@ -55,6 +55,11 @@ def get_xyz_yaw(waypoint):
     )
 
 
+def is_stop(waypoint):
+    """stop: true の waypoint では到達後に停止し、next_wp を待つ."""
+    return bool(waypoint.get('stop', False))
+
+
 def set_xyz_yaw(waypoint, x, y, z, yaw):
     waypoint['x'] = float(x)
     waypoint['y'] = float(y)

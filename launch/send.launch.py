@@ -11,11 +11,15 @@ def launch_setup(context, *args, **kwargs):
     params = LaunchParams(
         context, LaunchConfiguration('params_file').perform(context))
 
-    # ファイル or フォルダを 1 つ指定する（フォルダならファイル送りモード）。
+    # 送信する YAML ファイルを 1 つ指定する。
     send_target = params.path('send_waypoint_path')
     frame_id = params.str('frame_id')
     use_sim_time = params.bool('use_sim_time')
     send_on_start = params.bool('send_on_start')
+    robot_frame = params.str('robot_frame')
+    switch_radius = params.float('switch_radius')
+    max_retries = params.int('max_retries')
+    skip_on_failure = params.bool('skip_on_failure')
 
     return [
         Node(
@@ -27,6 +31,10 @@ def launch_setup(context, *args, **kwargs):
                 'yaml_path': send_target,
                 'frame_id': frame_id,
                 'send_on_start': send_on_start,
+                'robot_frame': robot_frame,
+                'switch_radius': switch_radius,
+                'max_retries': max_retries,
+                'skip_on_failure': skip_on_failure,
                 'use_sim_time': use_sim_time,
             }],
         )
@@ -47,6 +55,10 @@ def generate_launch_description():
             'frame_id',
             'use_sim_time',
             'send_on_start',
+            'robot_frame',
+            'switch_radius',
+            'max_retries',
+            'skip_on_failure',
         ]),
         OpaqueFunction(function=launch_setup),
     ])

@@ -3,12 +3,13 @@
 <package format="3">
   <name>waypoint_tools</name>
   <version>0.0.0</version>
-  <description>GUI waypoint editor and FollowWaypoints sender.</description>
+  <description>GUI waypoint editor and NavigateToPose waypoint sender.</description>
   <maintainer email="takumi@example.com">takumi</maintainer>
   <license>TODO</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
 
+  <exec_depend>action_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>interactive_markers</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
