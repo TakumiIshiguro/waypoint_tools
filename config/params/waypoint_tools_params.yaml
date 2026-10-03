@@ -51,11 +51,9 @@ waypoint_tools:
     skip_on_failure: false
 
     # ---- Auto waypoint recorder. Used only by record.launch.py. ----
-    # Numbered output files are written here as 0.yaml, 1.yaml, ...
-    # Call /waypoint_recorder_node/next_file to save the current file and move on.
-    # record_waypoint_dir: $(find-pkg-share orne_box_navigation_executor)/config/waypoints/tsudanuma
-    record_waypoint_dir: config/waypoints/tsudanuma
-    record_start_index: 0
+    # Recorded waypoints are saved to this single YAML file (overwritten on save).
+    # record_waypoint_path: $(find-pkg-share orne_box_navigation_executor)/config/waypoints/tsudanuma/recorded.yaml
+    record_waypoint_path: config/waypoints/tsudanuma/recorded.yaml
 
     # true: 既存地図（map_yaml_path）上で emcl2 により自己位置推定しながら記録する
     #       （map_server + emcl2 をこの launch で起動）。

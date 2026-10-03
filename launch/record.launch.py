@@ -19,8 +19,7 @@ def launch_setup(context, *args, **kwargs):
     params = LaunchParams(
         context, LaunchConfiguration('params_file').perform(context))
 
-    output_dir = params.path('record_waypoint_dir')
-    start_index = params.int('record_start_index')
+    output_path = params.path('record_waypoint_path')
     rviz_config = params.path('rviz_config_path')
     frame_id = params.str('frame_id')
     robot_frame = params.str('robot_frame')
@@ -61,8 +60,7 @@ def launch_setup(context, *args, **kwargs):
             name='waypoint_recorder_node',
             output='screen',
             parameters=[{
-                'output_dir': output_dir,
-                'start_index': start_index,
+                'output_path': output_path,
                 'frame_id': frame_id,
                 'robot_frame': robot_frame,
                 'distance_interval': distance_interval,
@@ -98,8 +96,7 @@ def generate_launch_description():
             default_value=default_params_file,
             description='Waypoint tools parameter file.'),
         *declare_overrides([
-            'record_waypoint_dir',
-            'record_start_index',
+            'record_waypoint_path',
             'map_yaml_path',
             'rviz_config_path',
             'emcl2_params_path',

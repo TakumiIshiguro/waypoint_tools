@@ -33,14 +33,14 @@ emcl2_params_path: $(find-pkg-share orne_box_navigation_executor)/config/params/
 - ROS 1 の `$(find <package>)` は使えません。
 - コメント内の `$(...)` も展開されるため、存在しない package 名は書かないでください。
 - launch 引数で使うときは、シェルに展開されないようシングルクォートで囲んでください。
-- `record_waypoint_dir` に他 package の share を指定すると、install 側に保存されます。
+- `record_waypoint_path` に他 package の share を指定すると、install 側に保存されます。
 
 設定ファイルは `src/waypoint_tools/config/params/waypoint_tools_params.yaml` です
 （`params_file:=` で差し替え可）。launch・node とも**既定値を持たず**、
 すべてこのファイルから読みます。使うキーが無い・空の場合は起動時にエラーになります
 （launch 引数で渡した値はファイルより優先されます）。
 記録・編集・送信は src 側の waypoint を共通で参照し、同梱の設定の記録先は
-`src/waypoint_tools/config/waypoints/tsudanuma/` です。
+`src/waypoint_tools/config/waypoints/tsudanuma/recorded.yaml` です。
 ornebox のパスは設定ファイル内にコメントで残しています。
 地図を表示する場合は `config/maps/tsudanuma/tsudanuma_keepout.yaml` と対応する
 画像を配置するか、`map_yaml_path` を指定してください。
@@ -94,9 +94,8 @@ ros2 service call /waypoint_editor_node/prev_file std_srvs/srv/Trigger {}
 
 `config/params/waypoint_tools_params.yaml` の以下を設定して起動します。
 
-- `record_waypoint_dir`: 出力先フォルダ。ここに番号付きの YAML
-  （`0.yaml`, `1.yaml`, ...）が `waypoints:` リスト形式で保存されます
-- `record_start_index`: 開始番号（ファイル名は `{番号}.yaml` 固定）
+- `record_waypoint_path`: 出力先の YAML ファイル。`waypoints:` リスト形式で保存されます
+  （既存のファイルは保存時に上書きされます）
 - `distance_interval` [m]: この距離進んだら打点
 - `yaw_interval_deg` [deg]: 進行方位がこれだけ変化したら打点
 - `min_move` [m]: 直前の打点（最初は記録開始位置）からこの距離未満では、方位が変化しても自動打点しない。その場旋回や位置の揺れによる密集を抑える。終端点の重複判定にも使用する。
@@ -109,14 +108,12 @@ ros2 service call /waypoint_editor_node/prev_file std_srvs/srv/Trigger {}
 ros2 launch waypoint_tools record.launch.py
 ```
 
-記録開始直後やファイル切り替え直後は waypoint を打たず、動き出して
-しきい値を超えてから最初の点が置かれます。
+記録開始直後は waypoint を打たず、動き出してしきい値を超えてから
+最初の点が置かれます。
 
-1 本のルートを打ち終えたら `next_file` を呼ぶと、**現在位置に waypoint を
-1 点打ってから** `{index}.yaml` に保存し、次の番号へ進みます（記録は継続）。
-これにより各ルートは切り替え地点で終端します。番号順のファイル群は
-そのまま `send.launch.py` の `send_waypoint_path`（フォルダ指定）で
-送信できます。
+Ctrl-C で終了すると、**停止位置に終端の waypoint を 1 点打ってから**
+`record_waypoint_path` に保存します。送信するときは
+`send.launch.py` の `send_waypoint_path` にこのファイルを指定します。
 
 ### 既存の地図上で emcl2 の推定位置に打点する
 
@@ -158,9 +155,7 @@ Nav2（`play_waypoints_nav.launch.py` など）や別の emcl2 / map_server が
 - marker を右クリック →
   - `insert after`: 直後に waypoint を追加
   - `delete`: その waypoint を削除
-  - `save`: 現在の番号の YAML へ保存
-  - `save & next file`: 右クリックした waypoint を最後の点として保存し、次の番号へ進む。選択点より後の waypoint は次のファイルへ引き継ぐ。
-    最後の waypoint で押した場合は、`min_move` に関係なく**ロボットの現在位置**に終端点を打ってから保存する。
+  - `save`: `record_waypoint_path` へ保存
   - `recording`: 自動打点の一時停止 / 再開（チェックで状態表示）
 
 編集操作中に自動打点が邪魔なときは `recording` のチェックを外して停止し、
@@ -177,10 +172,8 @@ ros2 service call /waypoint_recorder_node/clear std_srvs/srv/Trigger {}
 # 自動打点の一時停止 / 再開
 ros2 service call /waypoint_recorder_node/pause std_srvs/srv/Trigger {}
 ros2 service call /waypoint_recorder_node/resume std_srvs/srv/Trigger {}
-# 現在の番号の YAML に保存
+# record_waypoint_path に保存
 ros2 service call /waypoint_recorder_node/save std_srvs/srv/Trigger {}
-# 現在位置に 1 点打ってから保存し、次の番号（{index}.yaml）へ進む
-ros2 service call /waypoint_recorder_node/next_file std_srvs/srv/Trigger {}
 ```
 
 Ctrl-C 終了時にも自動保存されます。
