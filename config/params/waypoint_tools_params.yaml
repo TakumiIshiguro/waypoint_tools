@@ -11,11 +11,9 @@ waypoint_tools:
     # 既定値は持たない。launch で使うキーが無い・空だと起動時にエラーになる。
 
     # Edit target. Used only by edit.launch.py.
-    #   YAML ファイル -> そのファイルを開く
-    #   フォルダ       -> 中の *.yaml を数値順に並べ、
-    #                     /waypoint_editor_node/next_file /prev_file で送る
-    edit_waypoint_path: config/waypoints/tsudanuma
-    # edit_waypoint_path: $(find-pkg-share orne_box_navigation_executor)/config/waypoints/tsudanuma
+    #   YAML ファイルを 1 つ指定する（フォルダは不可）。
+    edit_waypoint_path: config/waypoints/tsudanuma/0.yaml
+    # edit_waypoint_path: $(find-pkg-share orne_box_navigation_executor)/config/waypoints/tsudanuma/0.yaml
 
     # Send target. Used only by send.launch.py.
     #   YAML ファイルを 1 つ指定する（フォルダは不可）。

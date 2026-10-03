@@ -1,20 +1,6 @@
-import re
 from pathlib import Path
 
 import yaml
-
-
-def _natural_key(name):
-    return [int(part) if part.isdigit() else part
-            for part in re.split(r'(\d+)', name)]
-
-
-def list_waypoint_yamls(directory):
-    """directory 内の *.yaml を数値順（1, 2, ..., 10）でソートして返す."""
-    directory = Path(directory).expanduser()
-    paths = [p for p in directory.glob('*.yaml') if p.is_file()]
-    paths.sort(key=lambda p: _natural_key(p.name))
-    return [str(p) for p in paths]
 
 
 def load_config(yaml_path):

@@ -49,18 +49,14 @@ ornebox のパスは設定ファイル内にコメントで残しています。
 ## RViz で waypoint を編集する
 
 `config/params/waypoint_tools_params.yaml` の `map_yaml_path` と
-`edit_waypoint_path` を指定してから起動します。`edit_waypoint_path` は
-**ファイルでもフォルダでも**指定できます。
-
-- **ファイル** を指定 → そのファイルを開く
-- **フォルダ** を指定 → 中の `*.yaml` を数値順に並べ、marker 右クリックの
-  `next file` / `prev file`（または同名サービス）で送りながら 1 本ずつ編集する
+`edit_waypoint_path` を指定してから起動します。`edit_waypoint_path` には
+編集する YAML **ファイル**を 1 つ指定します（フォルダは指定できません）。
 
 ```bash
 ros2 launch waypoint_tools edit.launch.py
 # CLI で上書きする例
 ros2 launch waypoint_tools edit.launch.py \
-  edit_waypoint_path:=/path/to/waypoints
+  edit_waypoint_path:=/path/to/route.yaml
 ```
 
 RViz の `Interact` ツールを選択し、waypoint marker を右クリックすると
@@ -72,14 +68,14 @@ RViz の `Interact` ツールを選択し、waypoint marker を右クリック�
 | `delete` | その waypoint を削除 |
 | `save` | 現在開いている YAML に保存 |
 | `stop` | チェックで停止点（`stop: true`）にする / 外すと通過点。停止点は赤い円盤と `(stop)` で表示。反映には `save` が必要 |
-| `prev file` / `next file` | フォルダ指定時、前 / 次のファイルへ（未保存の変更は破棄） |
 
-サービスでも同じ操作ができます:
+サービス:
 
 ```bash
-ros2 service call /waypoint_editor_node/save     std_srvs/srv/Trigger {}
-ros2 service call /waypoint_editor_node/next_file std_srvs/srv/Trigger {}
-ros2 service call /waypoint_editor_node/prev_file std_srvs/srv/Trigger {}
+# 保存
+ros2 service call /waypoint_editor_node/save   std_srvs/srv/Trigger {}
+# ファイルから読み直す（未保存の変更は破棄）
+ros2 service call /waypoint_editor_node/reload std_srvs/srv/Trigger {}
 ```
 
 `edit_start_map: true` なら `map_server` を起動して既存マップを表示します

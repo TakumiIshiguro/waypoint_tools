@@ -11,7 +11,7 @@ def launch_setup(context, *args, **kwargs):
     params = LaunchParams(
         context, LaunchConfiguration('params_file').perform(context))
 
-    # ファイル or フォルダを 1 つ指定する（フォルダならファイル送りモード）。
+    # 編集する YAML ファイルを 1 つ指定する。
     edit_target = params.path('edit_waypoint_path')
     rviz_config = params.path('rviz_config_path')
     frame_id = params.str('frame_id')
