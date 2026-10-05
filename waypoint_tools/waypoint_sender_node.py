@@ -9,7 +9,7 @@ from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.time import Time
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -17,8 +17,9 @@ from waypoint_tools.action_sender import (
     make_navigate_to_pose_goal, yaw_to_quaternion)
 from waypoint_tools.node_params import (
     BOOL, DOUBLE, INTEGER, STRING, require_parameters)
+from waypoint_tools.waypoint_edit_markers import WaypointEditMarkers
 from waypoint_tools.waypoint_yaml import (
-    get_waypoints, get_xyz_yaw, is_stop, load_config)
+    get_waypoints, get_xyz_yaw, is_stop, load_config, save_config)
 
 
 # Nav2 の NavigateToPose action。経由点の管理はこの node が行う。
@@ -39,6 +40,7 @@ RUNNING = 'running'      # 走行中
 STOPPED = 'stopped'      # stop: true の点に到達し、next_wp 待ち
 FINISHED = 'finished'    # 最後の点に到達
 FAILED = 'failed'        # 再送しても到達できず停止
+PAUSED = 'paused'        # 編集モードに入って goal を取り消した。next_wp で同じ点から再開
 
 
 class WaypointSenderNode(Node):
@@ -79,10 +81,18 @@ class WaypointSenderNode(Node):
 
         self.create_service(Trigger, '~/send_all', self.send_all_callback)
         self.create_service(Trigger, '~/next_wp', self.next_wp_callback)
+        self.create_service(SetBool, '~/edit', self.edit_callback)
 
         self.marker_pub = self.create_publisher(MarkerArray, MARKER_TOPIC, 10)
         # 直近で publish した waypoint 数。reload で減ったときに古い marker を消す。
         self._published_count = 0
+
+        # 編集モード中だけ円盤を interactive marker にして編集できるようにする。
+        self.editing = False
+        self.edit_markers = WaypointEditMarkers(
+            self, self.frame_id, lambda: self.waypoints, self.save_waypoints,
+            on_insert=self._on_insert, on_delete=self._on_delete,
+            on_change=self.publish_markers)
 
         # 起動時は YAML を読んで RViz に表示するだけ。走行は ~/send_all
         # （または ~/next_wp）で開始する。
@@ -109,6 +119,7 @@ class WaypointSenderNode(Node):
         if not waypoints:
             raise RuntimeError(f'No waypoints in {self.yaml_path}.')
 
+        self.config = config
         self.waypoints = waypoints
         self.wp_index = 0
         stops = [i for i, wp in enumerate(waypoints) if is_stop(wp)]
@@ -118,10 +129,9 @@ class WaypointSenderNode(Node):
         self.publish_markers()
 
     def send_all(self):
-        """YAML を読み直し、最初の waypoint から走行を始める."""
+        """最初の waypoint から走行を始める（編集後の waypoint を使う）."""
         if not self.action_client.wait_for_server(timeout_sec=10.0):
             raise RuntimeError(f'{ACTION_NAME} is not available.')
-        self._load()
         self._go_to(0)
 
     # -----------------------------------------------------------
@@ -251,14 +261,16 @@ class WaypointSenderNode(Node):
 
     def _target_index(self):
         """緑で表示する現在の目標点。走行していなければ None."""
-        if self.state in (RUNNING, STOPPED, FAILED):
+        if self.state in (RUNNING, STOPPED, FAILED, PAUSED):
             return self.wp_index
         return None
 
     def publish_markers(self):
         """waypoint を円盤 + 向きの矢印 + 番号で、経路を線で表示する."""
         marker_array = MarkerArray()
-        for index, waypoint in enumerate(self.waypoints):
+        # 編集モード中は円盤・矢印・番号を interactive marker が出す。
+        shown = [] if self.editing else self.waypoints
+        for index, waypoint in enumerate(shown):
             x, y, _, yaw = get_xyz_yaw(waypoint)
             stop = is_stop(waypoint)
 
@@ -309,14 +321,48 @@ class WaypointSenderNode(Node):
         if len(route.points) >= 2:
             marker_array.markers.append(route)
 
-        for index in range(len(self.waypoints), self._published_count):
+        for index in range(len(shown), self._published_count):
             for ns in ('waypoints', 'waypoint_arrows', 'waypoint_labels'):
                 stale = self._new_marker(ns, index, Marker.CYLINDER)
                 stale.action = Marker.DELETE
                 marker_array.markers.append(stale)
-        self._published_count = len(self.waypoints)
+        self._published_count = len(shown)
 
         self.marker_pub.publish(marker_array)
+
+    # -----------------------------------------------------------
+    # 編集モード
+    # -----------------------------------------------------------
+    def set_editing(self, enabled):
+        if enabled == self.editing:
+            return True, f'Edit mode is already {"on" if enabled else "off"}.'
+        self.editing = enabled
+        if enabled:
+            if self.state == RUNNING:
+                self._cancel_current()
+                self.state = PAUSED
+                self.get_logger().info(
+                    f'Canceled the goal to waypoint {self.wp_index} for editing. '
+                    'Call ~/next_wp to resume.')
+            self.edit_markers.show()
+        else:
+            self.edit_markers.hide()
+        self.publish_markers()
+        return True, f'Edit mode {"on" if enabled else "off"}.'
+
+    def _on_insert(self, index):
+        # 目標点より前に挿入したら、目標点の番号をずらす。
+        if self.state != IDLE and index <= self.wp_index:
+            self.wp_index += 1
+
+    def _on_delete(self, index):
+        if self.state != IDLE and index < self.wp_index:
+            self.wp_index -= 1
+        self.wp_index = min(self.wp_index, len(self.waypoints) - 1)
+
+    def save_waypoints(self):
+        save_config(self.yaml_path, self.config)
+        self.get_logger().info(f'Saved waypoints: {self.yaml_path}')
 
     # -----------------------------------------------------------
     # サービス
@@ -341,10 +387,14 @@ class WaypointSenderNode(Node):
     def next_wp(self):
         """次の waypoint へ進む.
 
-        未送信 -> 走行開始 / 走行中・停止点・失敗 -> 現在の点をやめて次の点へ。
+        未送信 -> 走行開始 / 走行中・停止点・失敗 -> 現在の点をやめて次の点へ /
+        編集で一時停止 -> 向かっていた点から再開。
         """
         if self.state == IDLE:
             return self._try_send_all()
+        if self.state == PAUSED:
+            self._go_to(self.wp_index)
+            return True, f'Resumed to waypoint {self.wp_index}.'
         if self.state == FINISHED:
             return False, 'Already reached the last waypoint.'
         self._cancel_current()
@@ -358,6 +408,9 @@ class WaypointSenderNode(Node):
 
     def next_wp_callback(self, request, response):
         return self._respond(response, self.next_wp())
+
+    def edit_callback(self, request, response):
+        return self._respond(response, self.set_editing(request.data))
 
 
 def main(args=None):

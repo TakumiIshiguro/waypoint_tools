@@ -240,6 +240,20 @@ RViz からは、パネル **Waypoint Sender**（パッケージ `waypoint_tools
 |---|---|
 | `Start` | `~/send_all` と同じ（最初の点から走行開始） |
 | `Next WP` | `~/next_wp` と同じ（次の点へ進む） |
+| `Edit` | `~/edit` と同じ（編集モードの切り替え） |
+
+### 走行中・走行前の編集
+
+`Edit` を押すと編集モードになり、waypoint が `waypoint_editor_node` と同じ
+interactive marker（namespace `/waypoint_tools`）に切り替わります。
+操作は「RViz で waypoint を編集する」と同じです（ドラッグで移動・回転、
+右クリックで `insert after` / `delete` / `save` / `stop`）。
+
+- 走行中に編集モードにすると、goal を取り消してその場で止まります。
+  `Next WP` で向かっていた点から再開します（前に点を挿入・削除しても同じ点に向かいます）。
+- 編集はすぐ走行に反映されます。`save` は YAML ファイルへの保存だけで、
+  保存しなくても `Start` / `Next WP` は編集後の waypoint で走ります。
+- もう一度 `Edit` を押すと通常の表示に戻ります。
 
 Nav2 の `nav2_TC2024_view2.rviz` にはこのパネルが入っています。別の RViz 設定では
 `Panels` → `Add New Panel` → `waypoint_tools_rviz/WaypointSenderPanel` で追加します。
@@ -251,9 +265,12 @@ waypoint は MarkerArray として `/waypoints` に publish します
 ### サービス
 
 ```bash
-# 走行開始（YAML を読み直して最初の点から。走行中ならやり直す）
+# 走行開始（最初の点から。走行中ならやり直す）
 ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger {}
 # 次の点へ進む
 #   未送信 -> 走行開始 / 停止点・失敗で停止中・走行中 -> 現在の点をやめて次の点へ
+#   編集モードで止めた -> 向かっていた点から再開
 ros2 service call /waypoint_sender_node/next_wp std_srvs/srv/Trigger {}
+# 編集モードの切り替え（true: 開始。走行中なら goal を取り消して止まる / false: 終了）
+ros2 service call /waypoint_sender_node/edit std_srvs/srv/SetBool "{data: true}"
 ```
