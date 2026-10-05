@@ -214,7 +214,7 @@ waypoints:
 |---|---|
 | `switch_radius` | 通過点で次の点へ切り替える距離 [m] |
 | `max_retries` | 失敗した点を再送する回数 |
-| `skip_on_failure` | 再送しても失敗したら次の点へ進むか（false なら停止して next_wp 待ち） |
+| `skip_on_failure` | 再送しても失敗したら次の点へ進むか（false なら停止して next_wp 待ち。next_wp で次の点へ進む） |
 | `robot_frame` | 距離判定に使うロボットの TF フレーム |
 
 Nav2 を起動した後、sender を起動します。
@@ -242,9 +242,7 @@ waypoint は MarkerArray として `/waypoints` に publish します
 ```bash
 # 走行開始（YAML を読み直して最初の点から。走行中ならやり直す）
 ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger {}
-# 停止中から再開
-#   stop 点 -> 次の点へ / 失敗 -> 現在の点を再送 / 未送信 -> 走行開始
+# 次の点へ進む
+#   未送信 -> 走行開始 / 停止点・失敗で停止中・走行中 -> 現在の点をやめて次の点へ
 ros2 service call /waypoint_sender_node/next_wp std_srvs/srv/Trigger {}
-# 現在の点を飛ばして次の点へ
-ros2 service call /waypoint_sender_node/skip std_srvs/srv/Trigger {}
 ```

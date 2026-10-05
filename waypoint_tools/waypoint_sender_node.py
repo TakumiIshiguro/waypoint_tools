@@ -79,7 +79,6 @@ class WaypointSenderNode(Node):
 
         self.create_service(Trigger, '~/send_all', self.send_all_callback)
         self.create_service(Trigger, '~/next_wp', self.next_wp_callback)
-        self.create_service(Trigger, '~/skip', self.skip_callback)
 
         self.marker_pub = self.create_publisher(MarkerArray, MARKER_TOPIC, 10)
         # 直近で publish した waypoint 数。reload で減ったときに古い marker を消す。
@@ -215,8 +214,8 @@ class WaypointSenderNode(Node):
         else:
             self.state = FAILED
             self.get_logger().error(
-                f'Gave up waypoint {self.wp_index}. Call ~/next_wp to retry '
-                'or ~/skip to go to the next waypoint.')
+                f'Gave up waypoint {self.wp_index}. '
+                'Call ~/next_wp to go to the next waypoint.')
 
     def control_callback(self):
         """通過点では switch_radius に入った時点で次の点を送る（停止しない）."""
@@ -331,37 +330,31 @@ class WaypointSenderNode(Node):
             return False, str(exc)
         return True, f'Sent {self.yaml_path}'
 
-    def send_all_callback(self, request, response):
+    def start(self):
         """最初の waypoint から走行を開始する（走行中ならやり直す）."""
         self._cancel_current()
-        return self._respond(response, self._try_send_all())
+        return self._try_send_all()
+
+    def next_wp(self):
+        """次の waypoint へ進む.
+
+        未送信 -> 走行開始 / 走行中・停止点・失敗 -> 現在の点をやめて次の点へ。
+        """
+        if self.state == IDLE:
+            return self._try_send_all()
+        if self.state == FINISHED:
+            return False, 'Already reached the last waypoint.'
+        self._cancel_current()
+        self._advance()
+        if self.state == FINISHED:
+            return True, 'Reached the last waypoint.'
+        return True, f'Go to waypoint {self.wp_index}.'
+
+    def send_all_callback(self, request, response):
+        return self._respond(response, self.start())
 
     def next_wp_callback(self, request, response):
-        """停止状態から走行を再開する.
-
-        stop 点 -> 次の点へ / failed -> 現在の点を再送 / 未送信 -> 走行開始。
-        """
-        if self.state == STOPPED:
-            self._advance()
-            result = (True, f'Resumed to waypoint {self.wp_index}.')
-        elif self.state == FAILED:
-            self._go_to(self.wp_index)
-            result = (True, f'Resumed waypoint {self.wp_index}.')
-        elif self.state == IDLE:
-            result = self._try_send_all()
-        elif self.state == FINISHED:
-            result = (False, 'Already reached the last waypoint.')
-        else:
-            result = (False, 'Already running.')
-        return self._respond(response, result)
-
-    def skip_callback(self, request, response):
-        if self.state in (IDLE, FINISHED):
-            return self._respond(response, (False, f'Nothing to skip ({self.state}).'))
-        self._cancel_current()
-        skipped = self.wp_index
-        self._advance()
-        return self._respond(response, (True, f'Skipped waypoint {skipped}.'))
+        return self._respond(response, self.next_wp())
 
 
 def main(args=None):
