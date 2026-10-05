@@ -1,32 +1,19 @@
 #!/usr/bin/env python3
-import copy
 import os
 
 from rcl_interfaces.msg import SetParametersResult
 
 import rclpy
 from geometry_msgs.msg import Point
-from interactive_markers import InteractiveMarkerServer, MenuHandler
 from rclpy.node import Node
 from std_srvs.srv import Trigger
-from visualization_msgs.msg import (
-    InteractiveMarkerFeedback,
-    Marker,
-    MarkerArray,
-)
+from visualization_msgs.msg import Marker, MarkerArray
 
-from waypoint_tools.action_sender import quaternion_to_yaw
-from waypoint_tools.interactive_waypoints import (
-    DISC_COLOR, ROUTE_TOPIC, STOP_DISC_COLOR, build_waypoint_marker)
+from waypoint_tools.interactive_waypoints import ROUTE_TOPIC
 from waypoint_tools.node_params import STRING, require_parameters
+from waypoint_tools.waypoint_edit_markers import WaypointEditMarkers
 from waypoint_tools.waypoint_yaml import (
-    get_waypoints,
-    get_xyz_yaw,
-    is_stop,
-    load_config,
-    save_config,
-    set_xyz_yaw,
-)
+    get_waypoints, get_xyz_yaw, load_config, save_config)
 
 
 class WaypointEditorNode(Node):
@@ -43,8 +30,9 @@ class WaypointEditorNode(Node):
 
         self.config = load_config(self.yaml_path)
 
-        self.server = InteractiveMarkerServer(self, 'waypoint_tools')
-        self.menu_handler = MenuHandler()
+        self.edit_markers = WaypointEditMarkers(
+            self, self.frame_id, lambda: get_waypoints(self.config),
+            self.save_waypoints, on_change=self.publish_routes)
 
         self.route_pub = self.create_publisher(MarkerArray, ROUTE_TOPIC, 10)
         # 直近で publish した route セグメント数。delete や reload で
@@ -59,7 +47,6 @@ class WaypointEditorNode(Node):
         self.add_on_set_parameters_callback(self.on_params_changed)
         # -----------------------------------------------------
 
-        self.init_menu()
         self.rebuild_markers()
         self.timer = self.create_timer(0.5, self.publish_routes)
 
@@ -92,97 +79,9 @@ class WaypointEditorNode(Node):
         self.rebuild_markers()
         self.get_logger().info(f'Loaded: {self.yaml_path}')
 
-    def init_menu(self):
-        self.menu_handler.insert('insert after', callback=self.insert_callback)
-        self.menu_handler.insert('delete', callback=self.delete_callback)
-        self.menu_handler.insert('save', callback=self.menu_save_callback)
-        # チェックで停止点（stop: true）。状態は marker ごとに make_marker で反映する。
-        self.stop_handle = self.menu_handler.insert(
-            'stop', callback=self.stop_callback)
-
     def rebuild_markers(self):
-        self.server.clear()
-        for index, waypoint in enumerate(get_waypoints(self.config)):
-            x, y, z, yaw = get_xyz_yaw(waypoint)
-            self.make_marker(index, x, y, z, yaw)
-        self.server.applyChanges()
+        self.edit_markers.show()
         self.publish_routes()
-
-    def make_marker(self, index, x, y, z, yaw):
-        stop = is_stop(get_waypoints(self.config)[index])
-        marker = build_waypoint_marker(
-            str(index), self.frame_id, x, y, yaw,
-            self.get_marker_scale(index),
-            f'waypoint {index}' + (' (stop)' if stop else ''),
-            STOP_DISC_COLOR if stop else DISC_COLOR)
-        self.server.insert(marker, feedback_callback=self.feedback_callback)
-        self.server.setCallback(
-            marker.name, self.pose_update_callback,
-            InteractiveMarkerFeedback.POSE_UPDATE)
-        # MenuHandler のチェック状態は apply 時点の値が marker に焼き込まれる。
-        self.menu_handler.setCheckState(
-            self.stop_handle,
-            MenuHandler.CHECKED if stop else MenuHandler.UNCHECKED)
-        self.menu_handler.apply(self.server, marker.name)
-
-    def stop_callback(self, feedback):
-        index = int(feedback.marker_name)
-        waypoint = get_waypoints(self.config)[index]
-        if is_stop(waypoint):
-            waypoint.pop('stop', None)
-        else:
-            waypoint['stop'] = True
-        x, y, z, yaw = get_xyz_yaw(waypoint)
-        self.make_marker(index, x, y, z, yaw)
-        self.server.applyChanges()
-        self.get_logger().info(
-            f'waypoint {index}: stop={is_stop(waypoint)} (save to keep)')
-
-    def get_marker_scale(self, index):
-        waypoint = get_waypoints(self.config)[index]
-        properties = waypoint.get('properties', {})
-        radius = float(properties.get('goal_radius', 1.0))
-        return max(radius, 0.3)
-
-    def feedback_callback(self, feedback):
-        if feedback.event_type == InteractiveMarkerFeedback.MENU_SELECT:
-            return
-
-    def pose_update_callback(self, feedback):
-        index = int(feedback.marker_name)
-        waypoints = get_waypoints(self.config)
-        if index >= len(waypoints):
-            return
-
-        pose = feedback.pose
-        yaw = quaternion_to_yaw(pose.orientation)
-        _, _, old_z, _ = get_xyz_yaw(waypoints[index])
-        set_xyz_yaw(waypoints[index], pose.position.x, pose.position.y,
-                    old_z, yaw)
-        pose.position.z = 0.0
-        self.server.setPose(feedback.marker_name, pose)
-        self.server.applyChanges()
-
-    def insert_callback(self, feedback):
-        index = int(feedback.marker_name)
-        waypoints = get_waypoints(self.config)
-        x, y, z, yaw = get_xyz_yaw(waypoints[index])
-        new_waypoint = copy.deepcopy(waypoints[index])
-        new_waypoint.pop('stop', None)
-        set_xyz_yaw(new_waypoint, x + 0.5, y, z, yaw)
-        waypoints.insert(index + 1, new_waypoint)
-        self.rebuild_markers()
-
-    def delete_callback(self, feedback):
-        waypoints = get_waypoints(self.config)
-        if len(waypoints) <= 1:
-            self.get_logger().warn('Cannot delete the last waypoint.')
-            return
-        del waypoints[int(feedback.marker_name)]
-        self.rebuild_markers()
-
-    def menu_save_callback(self, feedback):
-        self.save_waypoints()
 
     def save_callback(self, request, response):
         try:
