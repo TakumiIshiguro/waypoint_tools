@@ -15,7 +15,6 @@ def launch_setup(context, *args, **kwargs):
     send_target = params.path('send_waypoint_path')
     frame_id = params.str('frame_id')
     use_sim_time = params.bool('use_sim_time')
-    send_on_start = params.bool('send_on_start')
     robot_frame = params.str('robot_frame')
     switch_radius = params.float('switch_radius')
     max_retries = params.int('max_retries')
@@ -30,7 +29,6 @@ def launch_setup(context, *args, **kwargs):
             parameters=[{
                 'yaml_path': send_target,
                 'frame_id': frame_id,
-                'send_on_start': send_on_start,
                 'robot_frame': robot_frame,
                 'switch_radius': switch_radius,
                 'max_retries': max_retries,
@@ -54,7 +52,6 @@ def generate_launch_description():
             'send_waypoint_path',
             'frame_id',
             'use_sim_time',
-            'send_on_start',
             'robot_frame',
             'switch_radius',
             'max_retries',

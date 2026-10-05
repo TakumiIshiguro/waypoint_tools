@@ -226,14 +226,25 @@ ros2 launch waypoint_tools send.launch.py \
   send_waypoint_path:=/path/to/waypoint_tools/config/waypoints/route.yaml
 ```
 
+起動しただけでは走行しません。YAML を読み込んで waypoint を RViz に表示し、
+サービスを待ちます。表示を確認してから `~/send_all` で走行を開始します。
+
+```bash
+ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger {}
+```
+
+waypoint は MarkerArray として `/waypoints` に publish します
+（`nav2_TC2024_view2.rviz` で表示される topic）。円盤は通過点が青、
+停止点が赤、現在の目標点が緑で、矢印が yaw、黄色の線が経路です。
+
 ### サービス
 
 ```bash
+# 走行開始（YAML を読み直して最初の点から。走行中ならやり直す）
+ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger {}
 # 停止中から再開
-#   stop 点 -> 次の点へ / 失敗 -> 現在の点を再送
+#   stop 点 -> 次の点へ / 失敗 -> 現在の点を再送 / 未送信 -> 走行開始
 ros2 service call /waypoint_sender_node/next_wp std_srvs/srv/Trigger {}
 # 現在の点を飛ばして次の点へ
 ros2 service call /waypoint_sender_node/skip std_srvs/srv/Trigger {}
-# 最初の点からやり直す
-ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger {}
 ```

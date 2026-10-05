@@ -38,7 +38,8 @@ waypoint_tools:
     use_sim_time: false
 
     # Send launch options.
-    send_on_start: true
+    # 起動時は waypoint を RViz（/waypoints）に表示するだけで、走行は
+    # /waypoint_sender_node/send_all（または next_wp）サービスで開始する。
     # 通過点では、この距離 [m] まで近づいたら次の waypoint を送り、止まらずに走る。
     # Nav2 の goal_checker の xy_goal_tolerance より大きくすること。
     # stop: true の点と各 YAML の最後の点は、Nav2 の到達判定まで走って停止する。
