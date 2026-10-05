@@ -233,6 +233,17 @@ ros2 launch waypoint_tools send.launch.py \
 ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger {}
 ```
 
+RViz からは、パネル **Waypoint Sender**（パッケージ `waypoint_tools_rviz`）の
+ボタンで開始できます。
+
+| ボタン | 動作 |
+|---|---|
+| `Start` | `~/send_all` と同じ（最初の点から走行開始） |
+| `Next WP` | `~/next_wp` と同じ（次の点へ進む） |
+
+Nav2 の `nav2_TC2024_view2.rviz` にはこのパネルが入っています。別の RViz 設定では
+`Panels` → `Add New Panel` → `waypoint_tools_rviz/WaypointSenderPanel` で追加します。
+
 waypoint は MarkerArray として `/waypoints` に publish します
 （`nav2_TC2024_view2.rviz` で表示される topic）。円盤は通過点が青、
 停止点が赤、現在の目標点が緑で、矢印が yaw、黄色の線が経路です。
