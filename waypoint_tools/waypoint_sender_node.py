@@ -168,6 +168,9 @@ class WaypointSenderNode(Node):
     def _goal_response_callback(self, future, generation):
         goal_handle = future.result()
         if generation != self.goal_generation:
+            # 応答待ちの間に取り消された goal。受理されていたら止める。
+            if goal_handle.accepted:
+                goal_handle.cancel_goal_async()
             return
         if not goal_handle.accepted:
             self.get_logger().error(
