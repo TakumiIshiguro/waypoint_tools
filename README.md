@@ -3,11 +3,33 @@
 `waypoint_tools` は、waypoint YAML を RViz 上で編集し、その waypoint を順に Nav2 の `NavigateToPose` に送って走行させるための ROS 2 パッケージです。
 経由点の管理（どの点を目指すか、どこで止まるか）はこのパッケージが行い、Nav2 の `waypoint_follower` は使いません。
 
-このパッケージには、実行用 node が3つあります。
+このパッケージには、実行用 node（C++）が3つと RViz パネルが1つあります。
 
 - `waypoint_editor_node`: RViz の interactive marker で waypoint を編集する node
 - `waypoint_sender_node`: waypoint YAML を読み込み、1 点ずつ Nav2 に送信して走行させる node
 - `waypoint_recorder_node`: ロボットを走行させながら経路上に waypoint を自動生成する node
+- `waypoint_tools/WaypointSenderPanel`: `waypoint_sender_node` を操作する RViz パネル
+
+## ビルドと構成
+
+```bash
+cd ~/ros2_ws
+colcon build --symlink-install --packages-select waypoint_tools
+```
+
+| パス | 内容 |
+|---|---|
+| `src/waypoint_*_node.cpp` | 各 node |
+| `src/waypoint_yaml.cpp` | waypoint YAML の読み書き（yaml-cpp。`x`/`y`/`z`/`yaw`/`stop` 以外のキーも保存時に残す） |
+| `src/waypoint_edit_markers.cpp` | interactive marker と右クリックメニュー（3 node 共通） |
+| `src/interactive_waypoints.cpp` | marker の組み立てと経路表示 |
+| `src/node_params.cpp` | 既定値なしのパラメータ宣言 |
+| `src/rviz/waypoint_sender_panel.cpp` | RViz パネル（`libwaypoint_tools_rviz.so`） |
+| `waypoint_tools/paths.py` | launch 用のパス解決ヘルパ |
+
+以前の Python 版（ament_python）や `waypoint_tools_rviz` パッケージをビルドしていた
+workspace では、`build/` と `install/` の `waypoint_tools` / `waypoint_tools_rviz` を
+削除してからビルドしてください。
 
 ## パスの書き方
 
@@ -233,7 +255,7 @@ ros2 launch waypoint_tools send.launch.py \
 ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger {}
 ```
 
-RViz からは、パネル **Waypoint Sender**（パッケージ `waypoint_tools_rviz`）の
+RViz からは、パネル **Waypoint Sender**（このパッケージに同梱）の
 ボタンで開始できます。
 
 | ボタン | 動作 |
@@ -256,7 +278,7 @@ interactive marker（namespace `/waypoint_tools`）に切り替わります。
 - もう一度 `Edit` を押すと通常の表示に戻ります。
 
 Nav2 の `nav2_TC2024_view2.rviz` にはこのパネルが入っています。別の RViz 設定では
-`Panels` → `Add New Panel` → `waypoint_tools_rviz/WaypointSenderPanel` で追加します。
+`Panels` → `Add New Panel` → `waypoint_tools/WaypointSenderPanel` で追加します。
 
 waypoint は MarkerArray として `/waypoints` に publish します
 （`nav2_TC2024_view2.rviz` で表示される topic）。円盤は通過点が青、

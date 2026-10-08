@@ -3,34 +3,39 @@
 <package format="3">
   <name>waypoint_tools</name>
   <version>0.0.0</version>
-  <description>GUI waypoint editor and NavigateToPose waypoint sender.</description>
+  <description>GUI waypoint editor, recorder, NavigateToPose waypoint sender and its RViz panel.</description>
   <maintainer email="takumi@example.com">takumi</maintainer>
   <license>TODO</license>
 
-  <buildtool_depend>ament_python</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
 
-  <exec_depend>action_msgs</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>interactive_markers</exec_depend>
+  <depend>geometry_msgs</depend>
+  <depend>interactive_markers</depend>
+  <depend>nav2_msgs</depend>
+  <depend>pluginlib</depend>
+  <depend>qtbase5-dev</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>rviz_common</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>visualization_msgs</depend>
+  <depend>yaml-cpp</depend>
+
+  <!-- launch ファイルと launch 用のパス解決ヘルパ（waypoint_tools/paths.py）。 -->
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>nav2_msgs</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>rviz2</exec_depend>
-  <exec_depend>std_srvs</exec_depend>
-  <exec_depend>tf2_ros</exec_depend>
-  <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
-
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+  <exec_depend>rviz2</exec_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>
