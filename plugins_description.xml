@@ -3,6 +3,6 @@
     name="waypoint_tools/WaypointSenderPanel"
     type="waypoint_tools::WaypointSenderPanel"
     base_class_type="rviz_common::Panel">
-    <description>Buttons to call waypoint_sender_node services (start / next_wp / edit).</description>
+    <description>Buttons to call waypoint_sender_node services (start / next_wp / edit / start_from).</description>
   </class>
 </library>

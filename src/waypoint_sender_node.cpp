@@ -13,6 +13,7 @@
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
+#include <std_msgs/msg/int32.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <tf2/exceptions.h>
@@ -30,6 +31,7 @@ namespace waypoint_tools
 
 using namespace std::chrono_literals;
 using nav2_msgs::action::NavigateToPose;
+using std_msgs::msg::Int32;
 using std_srvs::srv::SetBool;
 using std_srvs::srv::Trigger;
 using visualization_msgs::msg::Marker;
@@ -108,6 +110,16 @@ public:
         const SetBool::Request::SharedPtr request, SetBool::Response::SharedPtr response) {
         std::tie(response->success, response->message) = setEditing(request->data);
       });
+    // 番号指定の開始は応答を返せないので、結果はログに出す。
+    start_from_sub_ = create_subscription<Int32>(
+      "~/start_from", 10, [this](const Int32::SharedPtr msg) {
+        const auto [success, message] = startFrom(msg->data);
+        if (success) {
+          RCLCPP_INFO(get_logger(), "%s", message.c_str());
+        } else {
+          RCLCPP_WARN(get_logger(), "%s", message.c_str());
+        }
+      });
 
     marker_pub_ = create_publisher<MarkerArray>(kMarkerTopic, 10);
 
@@ -124,7 +136,8 @@ public:
     // 起動時は YAML を読んで RViz に表示するだけ。走行は ~/send_all
     // （または ~/next_wp）で開始する。
     load();
-    RCLCPP_INFO(get_logger(), "Waiting for ~/send_all (or ~/next_wp) to start navigation.");
+    RCLCPP_INFO(
+      get_logger(), "Waiting for ~/send_all (or ~/next_wp, ~/start_from) to start navigation.");
 
     control_timer_ = rclcpp::create_timer(
       this, get_clock(), 100ms, [this]() {controlCallback();});
@@ -167,13 +180,13 @@ private:
     publishMarkers();
   }
 
-  // 最初の waypoint から走行を始める（編集後の waypoint を使う）。
-  void sendAll()
+  // 指定した waypoint から走行を始める（編集後の waypoint を使う）。
+  void sendFrom(size_t index)
   {
     if (!action_client_->wait_for_action_server(10s)) {
       throw std::runtime_error(std::string(kActionName) + " is not available.");
     }
-    goTo(0);
+    goTo(index);
   }
 
   // -----------------------------------------------------------
@@ -480,21 +493,33 @@ private:
   // -----------------------------------------------------------
   // サービス
   // -----------------------------------------------------------
-  Result trySendAll()
+  Result trySendFrom(size_t index)
   {
     try {
-      sendAll();
+      sendFrom(index);
     } catch (const std::exception & e) {
       return {false, e.what()};
     }
-    return {true, "Sent " + yaml_path_};
+    return {true, "Sent " + yaml_path_ + " from waypoint " + std::to_string(index) + "."};
   }
 
   // 最初の waypoint から走行を開始する（走行中ならやり直す）。
   Result start()
   {
     cancelCurrent();
-    return trySendAll();
+    return trySendFrom(0);
+  }
+
+  // 指定した waypoint から走行を開始する（どの状態からでも。走行中ならやり直す）。
+  Result startFrom(int64_t index)
+  {
+    if (index < 0 || static_cast<size_t>(index) >= waypoints().size()) {
+      return {
+        false, "Waypoint " + std::to_string(index) + " is out of range (0.." +
+        std::to_string(waypoints().size() - 1) + ")."};
+    }
+    cancelCurrent();
+    return trySendFrom(static_cast<size_t>(index));
   }
 
   // 次の waypoint へ進む。
@@ -504,7 +529,7 @@ private:
   {
     switch (state_) {
       case State::kIdle:
-        return trySendAll();
+        return trySendFrom(0);
       case State::kPaused:
         goTo(wp_index_);
         return {true, "Resumed to waypoint " + std::to_string(wp_index_) + "."};
@@ -545,6 +570,7 @@ private:
   rclcpp::Service<Trigger>::SharedPtr send_all_service_;
   rclcpp::Service<Trigger>::SharedPtr next_wp_service_;
   rclcpp::Service<SetBool>::SharedPtr edit_service_;
+  rclcpp::Subscription<Int32>::SharedPtr start_from_sub_;
 
   rclcpp::Publisher<MarkerArray>::SharedPtr marker_pub_;
   // 直近で publish した waypoint 数。減ったときに古い marker を消す。

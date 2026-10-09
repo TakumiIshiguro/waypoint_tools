@@ -263,6 +263,12 @@ RViz からは、パネル **Waypoint Sender**（このパッケージに同梱�
 | `Start` | `~/send_all` と同じ（最初の点から走行開始） |
 | `Next WP` | `~/next_wp` と同じ（次の点へ進む） |
 | `Edit` | `~/edit` と同じ（編集モードの切り替え） |
+| `WP` 欄 + `Start from` | 指定した番号の点から走行開始（`~/start_from` topic に番号を publish） |
+
+`Start from` の番号は waypoint のラベル（RViz 上の数字）と同じで、0 始まりです。
+走行中・停止中・完了後など、どの状態からでも押せます（走行中なら今の goal を取り消してやり直し）。
+topic なので応答は無く、範囲外の番号は node が無視して警告をログに出します。
+実際に向かっている点は緑の円盤で確認してください。番号は `.rviz` に保存されます。
 
 ### 走行中・走行前の編集
 
@@ -295,4 +301,11 @@ ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger {}
 ros2 service call /waypoint_sender_node/next_wp std_srvs/srv/Trigger {}
 # 編集モードの切り替え（true: 開始。走行中なら goal を取り消して止まる / false: 終了）
 ros2 service call /waypoint_sender_node/edit std_srvs/srv/SetBool "{data: true}"
+```
+
+番号指定の開始は topic（`std_msgs/Int32`）です（整数を渡せる標準のサービス型が無いため）。
+
+```bash
+# 5 番の点から走行開始（走行中ならやり直す。範囲外はログに警告を出して無視）
+ros2 topic pub --once /waypoint_sender_node/start_from std_msgs/msg/Int32 "{data: 5}"
 ```

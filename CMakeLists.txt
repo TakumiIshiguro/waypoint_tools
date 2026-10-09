@@ -49,7 +49,7 @@ endforeach()
 ament_target_dependencies(waypoint_editor_node
   rcl_interfaces rclcpp std_srvs visualization_msgs)
 ament_target_dependencies(waypoint_sender_node
-  geometry_msgs nav2_msgs rclcpp rclcpp_action std_srvs tf2 tf2_ros visualization_msgs)
+  geometry_msgs nav2_msgs rclcpp rclcpp_action std_msgs std_srvs tf2 tf2_ros visualization_msgs)
 ament_target_dependencies(waypoint_recorder_node
   geometry_msgs rclcpp std_srvs tf2 tf2_ros visualization_msgs)
 
@@ -64,7 +64,7 @@ target_include_directories(${PROJECT_NAME}_rviz PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(${PROJECT_NAME}_rviz
-  pluginlib rclcpp rviz_common std_srvs)
+  pluginlib rclcpp rviz_common std_msgs std_srvs)
 target_link_libraries(${PROJECT_NAME}_rviz Qt5::Widgets)
 pluginlib_export_plugin_description_file(rviz_common plugins_description.xml)
 
