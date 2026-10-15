@@ -175,6 +175,7 @@ Nav2（`play_waypoints_nav.launch.py` など）や別の emcl2 / map_server が
   - `insert after`: 直後に waypoint を追加
   - `delete`: その waypoint を削除
   - `save`: `record_waypoint_path` へ保存
+  - `stop`: チェックで停止点（`stop: true`）にする / 外すと通過点（赤い円盤と `(stop)` で表示）
   - `recording`: 自動打点の一時停止 / 再開（チェックで状態表示）
 
 編集操作中に自動打点が邪魔なときは `recording` のチェックを外して停止し、

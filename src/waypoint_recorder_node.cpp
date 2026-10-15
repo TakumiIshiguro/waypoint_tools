@@ -122,7 +122,8 @@ public:
         [this](size_t) {onDelete();},
         [this](size_t index) {onMove(index);},
         [this]() {publishRoutes();}},
-      WaypointEditMarkers::Options{false, false});
+      // stop（停止点の切り替え）は記録中も設定できるようにする。
+      WaypointEditMarkers::Options{true, false});
     recording_handle_ = edit_markers_->addCheckEntry(
       "recording", recording_, [this]() {setRecording(!recording_);});
 
