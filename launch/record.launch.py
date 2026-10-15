@@ -11,6 +11,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+from waypoint_tools.costmap import inflation_costmap_nodes
 from waypoint_tools.paths import (
     LaunchParams, declare_overrides, source_path)
 
@@ -52,6 +53,9 @@ def launch_setup(context, *args, **kwargs):
                 'launch', 'emcl2.launch.py')),
             launch_arguments=emcl2_args.items(),
         ))
+
+    # 地図にインフレーションをかけた costmap（RViz 表示用）。
+    nodes.extend(inflation_costmap_nodes(params, frame_id, use_sim_time))
 
     nodes.append(
         Node(
@@ -107,6 +111,8 @@ def generate_launch_description():
             'min_move',
             'use_sim_time',
             'localization',
+            'inflation_radius',
+            'cost_scaling_factor',
         ]),
         OpaqueFunction(function=launch_setup),
     ])

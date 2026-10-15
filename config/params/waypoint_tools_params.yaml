@@ -33,6 +33,11 @@ waypoint_tools:
     # edit.launch.py で map_server を起動して既存マップを表示するか。
     edit_start_map: true
 
+    # edit / record の RViz に表示する、地図にインフレーションをかけた costmap（/costmap/costmap）。
+    # Nav2 の global_costmap の inflation_layer に合わせておくと走行時と同じ見え方になる。
+    inflation_radius: 1.25
+    cost_scaling_factor: 3.0
+
     # Common ROS settings.
     frame_id: map
     use_sim_time: false
