@@ -49,7 +49,7 @@ launch 引数（`map_yaml_path:=...` など）の値も同様に展開します�
 launch 引数の名前は params YAML のキー名と同じで、指定するとファイルの値より優先されます。
 
 ```yaml
-emcl2_params_path: $(find-pkg-share orne_box_navigation_executor)/config/params/nav2_params.yaml
+localization_params_path: $(find-pkg-share orne_box_navigation_executor)/config/params/nav2_params.yaml
 ```
 
 - ROS 1 の `$(find <package>)` は使えません。
@@ -144,10 +144,10 @@ Ctrl-C で終了すると、**停止位置に終端の waypoint を 1 点打っ�
 ```bash
 ros2 launch waypoint_tools record.launch.py localization:=true \
   map_yaml_path:='$(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanu_map.yaml' \
-  emcl2_params_path:='$(find-pkg-share orne_box_navigation_executor)/config/params/nav2_params.yaml'
+  localization_params_path:='$(find-pkg-share orne_box_navigation_executor)/config/params/nav2_params.yaml'
 ```
 
-- emcl2 の params は `emcl2_params_path` で指定します（必須）。emcl2 パッケージ既定を使うなら
+- emcl2 の params は `localization_params_path` で指定します（必須。NDT と共通のキー）。emcl2 パッケージ既定を使うなら
   `$(find-pkg-share emcl2)/config/emcl2.param.yaml` を指定します。
 - 地図は keepout ではない地図を指定してください。
 - 起動後、RViz の `2D Pose Estimate` で初期位置を与えるまで打点しません
@@ -161,6 +161,32 @@ Nav2（`play_waypoints_nav.launch.py` など）や別の emcl2 / map_server が
 動いている状態では `localization:=true` を使わないでください。同名ノードが
 二重に起動します。その場合は `localization:=false` で記録し、
 既に出ている `map → base_link` を使います。
+
+### 既存の地図上で NDT の推定位置に打点する
+
+`localization_method` を `ndt` に（または起動引数 `localization_method:=ndt`）
+すると、emcl2 の代わりに `ndt_localization.launch.py` で自己位置推定します。
+PCD 地図は `ndt_map_path` で指定します（ndt_scan_matcher の `map.path` を上書き）。
+
+```bash
+ros2 launch waypoint_tools record.launch.py localization:=true localization_method:=ndt \
+  localization_params_path:=/path/to/ndt_localization_params.yaml \
+  ndt_map_path:='$(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanuma.pcd' \
+  map_yaml_path:='$(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanu_map.yaml'
+```
+
+- NDT の params も emcl2 と同じ `localization_params_path` で指定します。1 つのファイルを
+  ndt_localization の全ノードに渡すので、ファイル内はノードの完全修飾名ごとの節に分けます
+  （ndt_localization の `config/*.param.yaml` の `/**:` を
+  `/localization/pose_estimator/ndt_scan_matcher:` などのノード名に置き換えて 1 つにまとめる）。
+- `map_yaml_path` の 2D 地図は RViz 表示と costmap 用に `map_server` で出します
+  （PCD と同じ座標の地図を指定してください）。
+- 入力トピックは `ndt_localization.launch.py` の既定を使います
+  （LiDAR `/surestar_points`、車輪 odom `/odom`、IMU `/imu/data`）。
+- `odom → base_link` は ndt_localization（odometry_integrator）が出すので、
+  ロボット側で同じ TF を出さないでください。TF `base_link → LiDAR / IMU` は必要です。
+- 初期位置の扱いは emcl2 と同じで、RViz の `2D Pose Estimate` を与えるまで打点しません。
+- emcl2 と同様に `map_server` を起動するので、Nav2 や別の localization と同時に使わないでください。
 
 打点の yaw は「基準点から現在の点へ進む向き」になります。
 

@@ -2,7 +2,7 @@ waypoint_tools:
   ros__parameters:
     # パスは以下の書き方が使えます（フルパス不要）:
     #   find-pkg-share 置換     … その package の share ディレクトリ基準
-    #                             （書式は下の emcl2_params_path を参照）
+    #                             （書式は下の localization_params_path を参照）
     #   config/...             … src/waypoint_tools 基準（保存先も src）
     #   ~/...                  … ホーム展開
     #   /abs/path              … 絶対パスもそのまま可
@@ -26,9 +26,17 @@ waypoint_tools:
     # map_yaml_path: $(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanuma_keepout.yaml
     rviz_config_path: config/rviz/waypoint_tools.rviz
 
-    # emcl2 params used by record.launch.py when localization is true.
-    # emcl2 パッケージ既定を使うなら find-pkg-share で emcl2/config/emcl2.param.yaml を指す。
-    emcl2_params_path: $(find-pkg-share orne_box_navigation_executor)/config/params/nav2_params.yaml
+    # Localization params used by record.launch.py when localization is true.
+    # localization_method に合わせて、その推定器の params ファイルを 1 つ指定する。
+    #   emcl2: emcl2 の節を含む YAML。emcl2 パッケージ既定を使うなら
+    #          find-pkg-share で emcl2/config/emcl2.param.yaml を指す。
+    #   ndt:   ndt_localization の各ノードの節をまとめた YAML
+    #          （ndt_localization の config/*.param.yaml の /**: をノード名に置き換えて 1 つにする）。
+    localization_params_path: $(find-pkg-share orne_box_navigation_executor)/config/params/nav2_params.yaml
+
+    # PCD map used by record.launch.py when localization is true and localization_method is ndt.
+    # ndt_scan_matcher の map.path を上書きする。入力トピックなどは ndt_localization の既定を使う。
+    ndt_map_path: $(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanuma.pcd
 
     # edit.launch.py で map_server を起動して既存マップを表示するか。
     edit_start_map: true
@@ -59,11 +67,16 @@ waypoint_tools:
     # record_waypoint_path: $(find-pkg-share orne_box_navigation_executor)/config/waypoints/tsudanuma/recorded.yaml
     record_waypoint_path: config/waypoints/tsudanuma/recorded.yaml
 
-    # true: 既存地図（map_yaml_path）上で emcl2 により自己位置推定しながら記録する
-    #       （map_server + emcl2 をこの launch で起動）。
+    # true: 既存地図（map_yaml_path）上で自己位置推定しながら記録する
+    #       （map_server + localization_method の推定器をこの launch で起動）。
     #       RViz の 2D Pose Estimate で初期位置を与えるまでは打点しない。
     # false: SLAM などが別途 map -> base_link を出している前提で記録する。
     localization: true
+    # localization が true のときに使う自己位置推定。
+    #   emcl2: emcl2.launch.py（2D 地図 map_yaml_path + localization_params_path）
+    #   ndt:   ndt_localization.launch.py（PCD 地図 ndt_map_path + localization_params_path）。
+    #          map_yaml_path は RViz 表示と costmap 用に map_server で出す。
+    localization_method: emcl2
 
     # TF frames polled while driving (frame_id -> robot_frame).
     # sender の switch_radius 判定でも使う。

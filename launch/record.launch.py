@@ -28,8 +28,8 @@ def launch_setup(context, *args, **kwargs):
     yaw_interval_deg = params.float('yaw_interval_deg')
     min_move = params.float('min_move')
     use_sim_time = params.bool('use_sim_time')
-    # true: 既存地図上で emcl2 により自己位置推定しながら記録する
-    #       （map_server + emcl2 をこの launch で起動）。
+    # true: 既存地図上で自己位置推定しながら記録する
+    #       （map_server + localization_method の推定器をこの launch で起動）。
     #       /initialpose を受けるまでは打点しない。
     # false: SLAM などが別途 map -> base_link を出している前提で記録する。
     localization = params.bool('localization')
@@ -41,18 +41,73 @@ def launch_setup(context, *args, **kwargs):
         if not os.path.isfile(map_yaml):
             raise RuntimeError(
                 f'localization:=true requires an existing map: {map_yaml}')
-        # emcl2.launch.py が map_server と lifecycle_manager_localization も起動する。
-        emcl2_args = {
-            'map': map_yaml,
-            'params_file': params.path('emcl2_params_path'),
-            'use_sim_time': str(use_sim_time).lower(),
-        }
-        nodes.append(IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(os.path.join(
-                get_package_share_directory('emcl2'),
-                'launch', 'emcl2.launch.py')),
-            launch_arguments=emcl2_args.items(),
-        ))
+        method = params.str('localization_method')
+        if method == 'emcl2':
+            # emcl2.launch.py が map_server と lifecycle_manager_localization も起動する。
+            emcl2_args = {
+                'map': map_yaml,
+                'params_file': params.path('localization_params_path'),
+                'use_sim_time': str(use_sim_time).lower(),
+            }
+            nodes.append(IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(os.path.join(
+                    get_package_share_directory('emcl2'),
+                    'launch', 'emcl2.launch.py')),
+                launch_arguments=emcl2_args.items(),
+            ))
+        elif method == 'ndt':
+            ndt_map = params.path('ndt_map_path')
+            if not os.path.isfile(ndt_map):
+                raise RuntimeError(
+                    f'localization_method:=ndt requires an existing PCD map: {ndt_map}')
+            # ndt_localization.launch.py は map_server を起動しないので、
+            # RViz 表示と costmap 用の /map はここで出す。
+            nodes.extend([
+                Node(
+                    package='nav2_map_server',
+                    executable='map_server',
+                    name='map_server',
+                    output='screen',
+                    parameters=[{
+                        'yaml_filename': map_yaml,
+                        'use_sim_time': use_sim_time,
+                    }],
+                ),
+                Node(
+                    package='nav2_lifecycle_manager',
+                    executable='lifecycle_manager',
+                    name='lifecycle_manager_waypoint_tools_map',
+                    output='screen',
+                    parameters=[{
+                        'autostart': True,
+                        'node_names': ['map_server'],
+                        'use_sim_time': use_sim_time,
+                    }],
+                ),
+            ])
+            # 1 つの params ファイルを全ノードの *_param_path に渡す
+            # （ファイル内はノードごとの節に分ける）。
+            ndt_params = params.path('localization_params_path')
+            ndt_args = {
+                f'{node}_param_path': ndt_params for node in (
+                    'vehicle_velocity_converter', 'imu_corrector',
+                    'gyro_odometer', 'odometry_integrator',
+                    'ndt_scan_matcher', 'ekf_localizer', 'pose_initializer')
+            }
+            ndt_args.update({
+                'map_path': ndt_map,
+                'use_sim_time': str(use_sim_time).lower(),
+                'rviz': 'false',
+            })
+            nodes.append(IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(os.path.join(
+                    get_package_share_directory('ndt_localization'),
+                    'launch', 'ndt_localization.launch.py')),
+                launch_arguments=ndt_args.items(),
+            ))
+        else:
+            raise RuntimeError(
+                f'localization_method must be emcl2 or ndt: {method!r}')
 
     # 地図にインフレーションをかけた costmap（RViz 表示用）。
     nodes.extend(inflation_costmap_nodes(params, frame_id, use_sim_time))
@@ -103,7 +158,9 @@ def generate_launch_description():
             'record_waypoint_path',
             'map_yaml_path',
             'rviz_config_path',
-            'emcl2_params_path',
+            'localization_method',
+            'localization_params_path',
+            'ndt_map_path',
             'frame_id',
             'robot_frame',
             'distance_interval',
