@@ -12,18 +12,18 @@ waypoint_tools:
 
     # Edit target. Used only by edit.launch.py.
     #   YAML ファイルを 1 つ指定する（フォルダは不可）。
-    edit_waypoint_path: config/waypoints/tsudanuma/0.yaml
-    # edit_waypoint_path: $(find-pkg-share orne_box_navigation_executor)/config/waypoints/tsudanuma/0.yaml
+    # edit_waypoint_path: config/waypoints/tsudanuma/0.yaml
+    edit_waypoint_path: $(find-pkg-share orne_box_navigation_executor)/config/waypoints/tsudanuma.yaml
 
     # Send target. Used only by send.launch.py.
     #   YAML ファイルを 1 つ指定する（フォルダは不可）。
-    send_waypoint_path: config/waypoints/tsudanuma/0.yaml
-    # send_waypoint_path: $(find-pkg-share orne_box_navigation_executor)/config/waypoints/tsudanuma/0.yaml
+    # send_waypoint_path: config/waypoints/tsudanuma/0.yaml
+    send_waypoint_path: $(find-pkg-share orne_box_navigation_executor)/config/waypoints/tsudanuma.yaml
 
     # Map and RViz files used by the edit / record launch.
     # map_yaml_path は edit_start_map / localization が true のときだけ必要。
-    map_yaml_path: ~/tsukuba0926.yaml
-    # map_yaml_path: $(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanuma_keepout.yaml
+    # map_yaml_path: ~/maps/tsudanuma.yaml
+    map_yaml_path: $(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanuma.yaml
     rviz_config_path: config/rviz/waypoint_tools.rviz
 
     # Localization params used by record.launch.py when localization is true.
