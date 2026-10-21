@@ -1,338 +1,134 @@
 # waypoint_tools
 
-`waypoint_tools` は、waypoint YAML を RViz 上で編集し、その waypoint を順に Nav2 の `NavigateToPose` に送って走行させるための ROS 2 パッケージです。
-経由点の管理（どの点を目指すか、どこで止まるか）はこのパッケージが行い、Nav2 の `waypoint_follower` は使いません。
+waypoint を記録・編集し、順に Nav2 の `NavigateToPose` に送って走行させる ROS 2 パッケージです。
+どの点を目指すか・どこで止まるかはこのパッケージが管理し、Nav2 の `waypoint_follower` は使いません。
 
-このパッケージには、実行用 node（C++）が3つと RViz パネルが1つあります。
+## 使い方の流れ
 
-- `waypoint_editor_node`: RViz の interactive marker で waypoint を編集する node
-- `waypoint_sender_node`: waypoint YAML を読み込み、1 点ずつ Nav2 に送信して走行させる node
-- `waypoint_recorder_node`: ロボットを走行させながら経路上に waypoint を自動生成する node
-- `waypoint_tools/WaypointSenderPanel`: `waypoint_sender_node` を操作する RViz パネル
+| 手順 | 起動 | 主な設定 |
+|---|---|---|
+| 1. 記録 | `ros2 launch waypoint_tools record.launch.py` | `record_waypoint_path` |
+| 2. 編集 | `ros2 launch waypoint_tools edit.launch.py` | `edit_waypoint_path`, `map_yaml_path` |
+| 3. 送信（走行） | `ros2 launch waypoint_tools send.launch.py` | `send_waypoint_path` |
 
-## ビルドと構成
+## ビルド
 
 ```bash
 cd ~/ros2_ws
 colcon build --symlink-install --packages-select waypoint_tools
 ```
 
-| パス | 内容 |
-|---|---|
-| `src/waypoint_*_node.cpp` | 各 node |
-| `src/waypoint_yaml.cpp` | waypoint YAML の読み書き（yaml-cpp。`x`/`y`/`z`/`yaw`/`stop` 以外のキーも保存時に残す） |
-| `src/waypoint_edit_markers.cpp` | interactive marker と右クリックメニュー（3 node 共通） |
-| `src/interactive_waypoints.cpp` | marker の組み立てと経路表示 |
-| `src/node_params.cpp` | 既定値なしのパラメータ宣言 |
-| `src/rviz/waypoint_sender_panel.cpp` | RViz パネル（`libwaypoint_tools_rviz.so`） |
-| `waypoint_tools/paths.py` | launch 用のパス解決ヘルパ |
+## 設定ファイル
 
-以前の Python 版（ament_python）や `waypoint_tools_rviz` パッケージをビルドしていた
-workspace では、`build/` と `install/` の `waypoint_tools` / `waypoint_tools_rviz` を
-削除してからビルドしてください。
-
-## パスの書き方
-
-`config/params/waypoint_tools_params.yaml` や launch 引数のパスは、フルパスを
-書かなくても以下の書式が使えます。
+設定はすべて `config/params/waypoint_tools_params.yaml` に書きます。パスは以下の書式で書けます。
 
 | 書式 | 解決先 |
 |---|---|
 | `$(find-pkg-share <package>)/<rel>` | その package の share ディレクトリ基準 |
 | `config/...` | `src/waypoint_tools` 基準 |
 | `~/...` | ホーム展開 |
-| `/abs/path` | 絶対パスもそのまま可 |
+| `/abs/path` | 絶対パス |
 
-params YAML は `ParameterFile(allow_substs=True)` で launch 置換
-（`$(find-pkg-share ...)`、`$(env HOME)` など）を展開してから読み込みます。
-launch 引数（`map_yaml_path:=...` など）の値も同様に展開します。
-launch 引数の名前は params YAML のキー名と同じで、指定するとファイルの値より優先されます。
+## 1. 走行しながら waypoint を記録する
 
-```yaml
-localization_params_path: $(find-pkg-share orne_box_navigation_executor)/config/params/nav2_params.yaml
-```
+ロボットを teleop で走らせると、経路上に waypoint が自動で打たれます。
+自己位置の出し方は `localization` で選びます。
 
-- ROS 1 の `$(find <package>)` は使えません。
-- コメント内の `$(...)` も展開されるため、存在しない package 名は書かないでください。
-- launch 引数で使うときは、シェルに展開されないようシングルクォートで囲んでください。
-- `record_waypoint_path` に他 package の share を指定すると、install 側に保存されます。
+| `localization` | 自己位置 | 準備 |
+|---|---|---|
+| `false` | 別途起動した SLAM / localization の `map → base_link` | slam_toolbox などを別ターミナルで起動（その `/map` を RViz が表示） |
+| `true` | この launch が既存の地図で自己位置推定する | 下の「既存の地図で自己位置推定する」を参照 |
 
-設定ファイルは `src/waypoint_tools/config/params/waypoint_tools_params.yaml` です
-（`params_file:=` で差し替え可）。launch・node とも**既定値を持たず**、
-すべてこのファイルから読みます。使うキーが無い・空の場合は起動時にエラーになります
-（launch 引数で渡した値はファイルより優先されます）。
-記録・編集・送信は src 側の waypoint を共通で参照し、同梱の設定の記録先は
-`src/waypoint_tools/config/waypoints/tsudanuma/recorded.yaml` です。
-ornebox のパスは設定ファイル内にコメントで残しています。
-地図を表示する場合は `config/maps/tsudanuma/tsudanuma_keepout.yaml` と対応する
-画像を配置するか、`map_yaml_path` を指定してください。
-編集・送信用の `config/waypoints/tsudanuma/` は、記録して作成するか既存の YAML を配置してください。
-
-## RViz で waypoint を編集する
-
-`config/params/waypoint_tools_params.yaml` の `map_yaml_path` と
-`edit_waypoint_path` を指定してから起動します。`edit_waypoint_path` には
-編集する YAML **ファイル**を 1 つ指定します（フォルダは指定できません）。
-
-```bash
-ros2 launch waypoint_tools edit.launch.py
-# CLI で上書きする例
-ros2 launch waypoint_tools edit.launch.py \
-  edit_waypoint_path:=/path/to/route.yaml
-```
-
-RViz の `Interact` ツールを選択し、waypoint marker を右クリックすると
-メニューが出ます。
-
-| メニュー | 動作 |
+| パラメータ | 意味 |
 |---|---|
-| `insert after` | 直後に waypoint を追加 |
-| `delete` | その waypoint を削除 |
-| `save` | 現在開いている YAML に保存 |
-| `stop` | チェックで停止点（`stop: true`）にする / 外すと通過点。停止点は赤い円盤と `(stop)` で表示。反映には `save` が必要 |
-
-サービス:
-
-```bash
-# 保存
-ros2 service call /waypoint_editor_node/save   std_srvs/srv/Trigger {}
-# ファイルから読み直す（未保存の変更は破棄）
-ros2 service call /waypoint_editor_node/reload std_srvs/srv/Trigger {}
-```
-
-`edit_start_map: true` なら `map_server` を起動して既存マップを表示します
-（その場だけ切り替えるなら `edit_start_map:=false`）。
-
-
-## 走行しながら waypoint を自動生成する
-
-`map` フレームを出力する SLAM / localization を**別途起動**した状態で、
-ロボットを teleop で走らせると経路上に waypoint が自動で打たれます。
-この launch は `map` を作らないので、地図作成は slam_toolbox などを
-別ターミナルで起動してください（その `/map` を RViz が表示します）。
-
-`config/params/waypoint_tools_params.yaml` の以下を設定して起動します。
-
-- `record_waypoint_path`: 出力先の YAML ファイル。`waypoints:` リスト形式で保存されます
-  （既存のファイルは保存時に上書きされます）
-- `distance_interval` [m]: この距離進んだら打点
-- `yaw_interval_deg` [deg]: 進行方位がこれだけ変化したら打点
-- `min_move` [m]: 直前の打点（最初は記録開始位置）からこの距離未満では、方位が変化しても自動打点しない。その場旋回や位置の揺れによる密集を抑える。終端点の重複判定にも使用する。
-
-最小移動距離はパラメータ YAML の `min_move`、または起動引数で変更できます。
-例: `ros2 launch waypoint_tools record.launch.py min_move:=1.0`。
-手動の `add_waypoint` は距離に関係なく打点します。
+| `record_waypoint_path` | 保存先の YAML ファイル（保存時に上書き） |
+| `distance_interval` [m] | この距離進んだら打点 |
+| `yaw_interval_deg` [deg] | 進行方位がこれだけ変化したら打点 |
+| `min_move` [m] | 直前の打点からこの距離未満では、方位が変化しても打点しない（その場旋回や位置の揺れによる密集を防ぐ） |
 
 ```bash
 ros2 launch waypoint_tools record.launch.py
 ```
 
-記録開始直後は waypoint を打たず、動き出してしきい値を超えてから
-最初の点が置かれます。
+- 記録開始直後は打点せず、動き出してしきい値を超えてから最初の点が置かれます。
+- Ctrl-C で終了すると、停止位置に終端の waypoint を 1 点打ってから `record_waypoint_path` に保存します。
 
-Ctrl-C で終了すると、**停止位置に終端の waypoint を 1 点打ってから**
-`record_waypoint_path` に保存します。送信するときは
-`send.launch.py` の `send_waypoint_path` にこのファイルを指定します。
+### 既存の地図で自己位置推定する
 
-### 既存の地図上で emcl2 の推定位置に打点する
+`localization: true` にすると、`localization_method` に応じて推定器を起動します。
 
-作成済みの地図があれば、SLAM の代わりに emcl2 で自己位置推定しながら
-記録できます。params YAML の `localization` を `true` に
-すると（または起動引数 `localization:=true`）、`map_yaml_path`
-（または `map_yaml_path:=`）の地図を使って `emcl2.launch.py` を起動します。
-
-```bash
-ros2 launch waypoint_tools record.launch.py localization:=true \
-  map_yaml_path:='$(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanu_map.yaml' \
-  localization_params_path:='$(find-pkg-share orne_box_navigation_executor)/config/params/nav2_params.yaml'
-```
-
-- emcl2 の params は `localization_params_path` で指定します（必須。NDT と共通のキー）。emcl2 パッケージ既定を使うなら
-  `$(find-pkg-share emcl2)/config/emcl2.param.yaml` を指定します。
-- 地図は keepout ではない地図を指定してください。
-- 起動後、RViz の `2D Pose Estimate` で初期位置を与えるまで打点しません
-  初期位置を与え直したときも
-  基準点をリセットするので、推定位置の飛びで waypoint は打たれません。
-- 必要なトピック: `/scan`（LaserScan）、TF `odom → base_link`。
-
-`emcl2.launch.py` は内部で `map_server`（ノード名 `map_server`）と
-`lifecycle_manager_localization` を起動します。そのため、
-Nav2（`play_waypoints_nav.launch.py` など）や別の emcl2 / map_server が
-動いている状態では `localization:=true` を使わないでください。同名ノードが
-二重に起動します。その場合は `localization:=false` で記録し、
-既に出ている `map → base_link` を使います。
-
-### 既存の地図上で NDT の推定位置に打点する
-
-`localization_method` を `ndt` に（または起動引数 `localization_method:=ndt`）
-すると、emcl2 の代わりに `ndt_localization.launch.py` で自己位置推定します。
-PCD 地図は `ndt_map_path` で指定します（ndt_scan_matcher の `map.path` を上書き）。
-
-```bash
-ros2 launch waypoint_tools record.launch.py localization:=true localization_method:=ndt \
-  localization_params_path:=/path/to/ndt_localization_params.yaml \
-  ndt_map_path:='$(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanuma.pcd' \
-  map_yaml_path:='$(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanu_map.yaml'
-```
-
-- NDT の params も emcl2 と同じ `localization_params_path` で指定します。1 つのファイルを
-  ndt_localization の全ノードに渡すので、ファイル内はノードの完全修飾名ごとの節に分けます
-  （ndt_localization の `config/*.param.yaml` の `/**:` を
-  `/localization/pose_estimator/ndt_scan_matcher:` などのノード名に置き換えて 1 つにまとめる）。
-- `map_yaml_path` の 2D 地図は RViz 表示と costmap 用に `map_server` で出します
-  （PCD と同じ座標の地図を指定してください）。
-- 入力トピックは `ndt_localization.launch.py` の既定を使います
-  （LiDAR `/surestar_points`、車輪 odom `/odom`、IMU `/imu/data`）。
-- `odom → base_link` は ndt_localization（odometry_integrator）が出すので、
-  ロボット側で同じ TF を出さないでください。TF `base_link → LiDAR / IMU` は必要です。
-- 初期位置の扱いは emcl2 と同じで、RViz の `2D Pose Estimate` を与えるまで打点しません。
-- emcl2 と同様に `map_server` を起動するので、Nav2 や別の localization と同時に使わないでください。
-
-打点の yaw は「基準点から現在の点へ進む向き」になります。
-
-### RViz 上でリアルタイム編集
-
-記録中の waypoint は `waypoint_editor_node` と同じ interactive marker として
-表示され、走行させながらその場で編集できます。
-
-- 円盤をドラッグ → 位置移動
-- 矢印をドラッグ → yaw 回転
-- marker を右クリック →
-  - `insert after`: 直後に waypoint を追加
-  - `delete`: その waypoint を削除
-  - `save`: `record_waypoint_path` へ保存
-  - `stop`: チェックで停止点（`stop: true`）にする / 外すと通過点（赤い円盤と `(stop)` で表示）
-  - `recording`: 自動打点の一時停止 / 再開（チェックで状態表示）
-
-編集操作中に自動打点が邪魔なときは `recording` のチェックを外して停止し、
-編集が終わったら戻します。
-
-### サービス
-
-```bash
-# 現在位置で手動打点
-ros2 service call /waypoint_recorder_node/add_waypoint std_srvs/srv/Trigger {}
-# 最後の点を削除 / 全消去
-ros2 service call /waypoint_recorder_node/undo std_srvs/srv/Trigger {}
-ros2 service call /waypoint_recorder_node/clear std_srvs/srv/Trigger {}
-# 自動打点の一時停止 / 再開
-ros2 service call /waypoint_recorder_node/pause std_srvs/srv/Trigger {}
-ros2 service call /waypoint_recorder_node/resume std_srvs/srv/Trigger {}
-# record_waypoint_path に保存
-ros2 service call /waypoint_recorder_node/save std_srvs/srv/Trigger {}
-```
-
-Ctrl-C 終了時にも自動保存されます。
-保存した YAML は `waypoint_editor_node` でも引き続き編集できます。
-
-
-## Nav2 に waypoint を送信する
-
-`waypoint_sender_node` は waypoint を 1 点ずつ Nav2 の `NavigateToPose`
-（`/navigate_to_pose`）に送ります。
-
-- **通過点**: ロボット（TF `frame_id -> robot_frame`）が `switch_radius` [m]
-  以内に近づいた時点で次の点を送ります。goal が置き換わるだけなので
-  **止まらずに**経路追従を続けます。
-- **停止点**（`stop: true`）: Nav2 が到達判定するまで走って停止し、
-  `~/next_wp`（ジョイスティックの next_wp ボタン）を待ちます。
-- **最後の点**: YAML の最後の点は到達まで走って止まり、走行を終了します。
-
-`switch_radius` は Nav2 の goal_checker の `xy_goal_tolerance` より大きくしてください
-（小さいと通過点ごとに Nav2 の到達判定が先に出て減速します）。
-
-停止させたい点には YAML で `stop: true` を書きます（書かない点は通過点）。
+| `localization_method` | 起動するもの | 地図 |
+|---|---|---|
+| `emcl2` | `emcl2.launch.py` | `map_yaml_path`（2D） |
+| `ndt` | `ndt_localization.launch.py` | `ndt_map_path`（PCD）。`map_yaml_path` は RViz 表示用（PCD と同じ座標の地図） |
 
 ```yaml
-waypoints:
-- x: 10.0
-  y: 2.0
-  z: 0.0
-  yaw: 0.0
-- x: 15.0
-  y: 2.0
-  z: 0.0
-  yaw: 0.0
-  stop: true   # ここで止まり、next_wp で再開
+localization: true
+localization_method: ndt   # emcl2 / ndt
+localization_params_path: $(find-pkg-share orne_box_navigation_executor)/config/params/nav2_params.yaml
+map_yaml_path: $(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanuma.yaml
+ndt_map_path: $(find-pkg-share orne_box_navigation_executor)/config/maps/tsudanuma/tsudanuma.pcd   # ndt のみ
 ```
 
-`config/params/waypoint_tools_params.yaml` の `send_waypoint_path` に、
-送信する YAML **ファイル**を 1 つ指定します（フォルダは指定できません）。
+起動後、RViz の `2D Pose Estimate` で初期位置を与えるまで打点しません。
+
+## 2. waypoint を編集する
+
+`edit_waypoint_path` に編集する YAML、`map_yaml_path` に表示する地図を指定して起動します。
+
+```bash
+ros2 launch waypoint_tools edit.launch.py
+```
+
+RViz の `Interact` ツールで操作します。
+
+| 操作 | 動作 |
+|---|---|
+| 円盤をドラッグ | 位置を移動 |
+| 矢印をドラッグ | yaw を回転 |
+| 右クリック → `insert after` | 直後に waypoint を追加 |
+| 右クリック → `delete` | その waypoint を削除 |
+| 右クリック → `save` | 開いている YAML に保存 |
+| 右クリック → `stop` | チェックで停止点（`stop: true`）、外すと通過点。停止点は赤い円盤と `(stop)` で表示。ファイルへの反映には `save` が必要 |
+
+## 3. Nav2 に waypoint を送信して走行する
+
+`waypoint_sender_node` は waypoint を 1 点ずつ Nav2 の `NavigateToPose` に送ります。
+
+| 点の種類 | 動作 |
+|---|---|
+| 通過点 | ロボットが `switch_radius` [m] 以内に近づいたら次の点を送り、**止まらずに**走る |
+| 停止点（`stop: true`） | 到達して停止し、`Next WP` を待つ |
+| 最後の点 | 到達して停止し、走行を終了する |
 
 | パラメータ | 意味 |
 |---|---|
-| `switch_radius` | 通過点で次の点へ切り替える距離 [m] |
+| `send_waypoint_path` | 送信する YAML ファイル |
+| `switch_radius` [m] | 通過点で次の点へ切り替える距離。Nav2 の goal_checker の `xy_goal_tolerance` より大きくする |
 | `max_retries` | 失敗した点を再送する回数 |
-| `skip_on_failure` | 再送しても失敗したら次の点へ進むか（false なら停止して next_wp 待ち。next_wp で次の点へ進む） |
+| `skip_on_failure` | 再送しても失敗したら次の点へ進むか（false なら停止して `Next WP` 待ち） |
 | `robot_frame` | 距離判定に使うロボットの TF フレーム |
 
-Nav2 を起動した後、sender を起動します。
+Nav2 を起動した後に起動します。起動しただけでは走行せず、RViz パネルで開始します。
 
 ```bash
 ros2 launch waypoint_tools send.launch.py
-# CLI で上書きする例
-ros2 launch waypoint_tools send.launch.py \
-  send_waypoint_path:=/path/to/waypoint_tools/config/waypoints/route.yaml
 ```
 
-起動しただけでは走行しません。YAML を読み込んで waypoint を RViz に表示し、
-サービスを待ちます。表示を確認してから `~/send_all` で走行を開始します。
+### RViz パネル（Waypoint Sender）
 
-```bash
-ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger {}
-```
-
-RViz からは、パネル **Waypoint Sender**（このパッケージに同梱）の
-ボタンで開始できます。
+`Panels` → `Add New Panel` → `waypoint_tools/WaypointSenderPanel` で追加します。
 
 | ボタン | 動作 |
 |---|---|
-| `Start` | `~/send_all` と同じ（最初の点から走行開始） |
-| `Next WP` | `~/next_wp` と同じ（次の点へ進む） |
-| `Edit` | `~/edit` と同じ（編集モードの切り替え） |
-| `WP` 欄 + `Start from` | 指定した番号の点から走行開始（`~/start_from` topic に番号を publish） |
-
-`Start from` の番号は waypoint のラベル（RViz 上の数字）と同じで、0 始まりです。
-走行中・停止中・完了後など、どの状態からでも押せます（走行中なら今の goal を取り消してやり直し）。
-topic なので応答は無く、範囲外の番号は node が無視して警告をログに出します。
-実際に向かっている点は緑の円盤で確認してください。番号は `.rviz` に保存されます。
+| `Start` | 最初の点から走行開始 |
+| `Next WP` | 次の点へ進む |
+| `Edit` | 編集モードの切り替え |
+| `WP` 欄 + `Start from` | 指定した番号の点から走行開始。番号は RViz 上のラベルと同じ 0 始まり |
 
 ### 走行中・走行前の編集
 
-`Edit` を押すと編集モードになり、waypoint が `waypoint_editor_node` と同じ
-interactive marker（namespace `/waypoint_tools`）に切り替わります。
-操作は「RViz で waypoint を編集する」と同じです（ドラッグで移動・回転、
-右クリックで `insert after` / `delete` / `save` / `stop`）。
+`Edit` を押すと、「2. 編集」と同じ操作で編集できます。
 
-- 走行中に編集モードにすると、goal を取り消してその場で止まります。
-  `Next WP` で向かっていた点から再開します（前に点を挿入・削除しても同じ点に向かいます）。
-- 編集はすぐ走行に反映されます。`save` は YAML ファイルへの保存だけで、
-  保存しなくても `Start` / `Next WP` は編集後の waypoint で走ります。
-- もう一度 `Edit` を押すと通常の表示に戻ります。
-
-Nav2 の `nav2_TC2024_view2.rviz` にはこのパネルが入っています。別の RViz 設定では
-`Panels` → `Add New Panel` → `waypoint_tools/WaypointSenderPanel` で追加します。
-
-waypoint は MarkerArray として `/waypoints` に publish します
-（`nav2_TC2024_view2.rviz` で表示される topic）。円盤は通過点が青、
-停止点が赤、現在の目標点が緑で、矢印が yaw、黄色の線が経路です。
-
-### サービス
-
-```bash
-# 走行開始（最初の点から。走行中ならやり直す）
-ros2 service call /waypoint_sender_node/send_all std_srvs/srv/Trigger {}
-# 次の点へ進む
-#   未送信 -> 走行開始 / 停止点・失敗で停止中・走行中 -> 現在の点をやめて次の点へ
-#   編集モードで止めた -> 向かっていた点から再開
-ros2 service call /waypoint_sender_node/next_wp std_srvs/srv/Trigger {}
-# 編集モードの切り替え（true: 開始。走行中なら goal を取り消して止まる / false: 終了）
-ros2 service call /waypoint_sender_node/edit std_srvs/srv/SetBool "{data: true}"
-```
-
-番号指定の開始は topic（`std_msgs/Int32`）です（整数を渡せる標準のサービス型が無いため）。
-
-```bash
-# 5 番の点から走行開始（走行中ならやり直す。範囲外はログに警告を出して無視）
-ros2 topic pub --once /waypoint_sender_node/start_from std_msgs/msg/Int32 "{data: 5}"
-```
+- 走行中に編集モードにすると、その場で止まります。`Next WP` で向かっていた点から再開します。
+- 編集はすぐ走行に反映されます。`save` は YAML への保存だけです。
